@@ -4,9 +4,52 @@ import { ALLOWED_COMPONENTS, CATALOG_ID } from "./constants.js";
 export { LOG_A2UI_EVENT_TOOL_NAME, parseForwardedActionText } from "./action.js";
 export type { ForwardedActionPayload } from "./action.js";
 
-export { ALLOWED_COMPONENTS, CATALOG_ID } from "./constants.js";
-export type { AllowedComponent } from "./constants.js";
-export { REQUIRED_FIELD_PATHS } from "./constants.js";
+export {
+  ACTION_DISCARD_SURFACE,
+  ACTION_REVIEW_REQUEST,
+  ALLOWED_ACTION_NAMES,
+  ALLOWED_COMPONENTS,
+  CATALOG_ID,
+  DISCARD_BUTTON_ID,
+  FIELD_KEY_PATTERN,
+  HOST_COMPONENT_IDS,
+  HOST_STATUS_COMPONENT_ID,
+  HOST_VALIDATION_COMPONENT_ID,
+  LIMITS,
+  REQUEST_STATUSES,
+  REQUIRED_FIELD_PATHS,
+  REVIEW_BUTTON_ID,
+} from "./constants.js";
+export type {
+  AllowedActionName,
+  AllowedComponent,
+  RequestStatus,
+} from "./constants.js";
+
+export {
+  componentBindingPaths,
+  componentTypes,
+  createSurfaceOperation,
+  deleteSurfaceOperation,
+  deriveFieldRules,
+  extractOperations,
+  initializeDataModel,
+  operationKind,
+  operationsEnvelope,
+  operationSurfaceId,
+  updateComponentsOperation,
+  updateDataModelOperation,
+  validateComponentTree,
+  validateDataModel,
+  validateOperationEnvelope,
+  validateScopedDataPath,
+} from "./operations.js";
+export type {
+  ComponentTreeValidation,
+  FieldRule,
+  OperationEnvelopeValidation,
+  SurfaceValidationError,
+} from "./operations.js";
 
 export interface InlineCatalogSchema {
   catalogId: string;

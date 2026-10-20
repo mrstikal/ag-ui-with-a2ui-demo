@@ -232,11 +232,11 @@ function Workspace({
               Adaptive Request Builder
             </h1>
             <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-              Stage 1
+              Stage 2
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            AG-UI shell and inspector · same run, no extra model request
+            A2UI fixture pipeline · bug, feature, and meeting surfaces
           </p>
         </div>
 
@@ -293,7 +293,7 @@ function Workspace({
           : mode === "live"
             ? "LIVE MODEL - prompts are sent to the configured model provider."
             : mode === "fixture"
-              ? "FIXTURE - NO LIVE MODEL. Deterministic Stage 0 surface only."
+              ? "FIXTURE - NO LIVE MODEL. Fixed bug, feature, and meeting A2UI surfaces; actions round-trip through the graph."
               : "Bridge health unavailable. Start the bridge on port 4000."}
         <span className="ml-2 text-xs opacity-80">
           {modeMismatch

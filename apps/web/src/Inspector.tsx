@@ -6,6 +6,12 @@ import {
   type ActionEvidence,
   type InspectorFamily,
 } from "./inspector.js";
+import {
+  EMPTY_SURFACE,
+  reduceSurfaceActivity,
+  type SurfaceSummary,
+} from "./surface.js";
+import { SurfaceInspector } from "./SurfaceInspector.js";
 
 type Filter =
   | "all"
@@ -75,6 +81,7 @@ export function Inspector({
   const [rows, setRows] = useState<InspectorRow[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [action, setAction] = useState<ActionEvidence | null>(null);
+  const [surface, setSurface] = useState<SurfaceSummary>(EMPTY_SURFACE);
   const [currentRun, setCurrentRun] = useState<{
     runId?: string;
     threadId?: string;
@@ -90,6 +97,7 @@ export function Inspector({
   useEffect(() => {
     setRows([]);
     setAction(null);
+    setSurface(EMPTY_SURFACE);
     setFilter("all");
     setCurrentRun({ threadId });
     currentRunRef.current = { threadId };
@@ -159,6 +167,12 @@ export function Inspector({
             receivedAt: timeNow(),
             toolCallId,
           });
+        }
+        if (
+          type === "ACTIVITY_SNAPSHOT" &&
+          record.activityType === "a2ui-surface"
+        ) {
+          setSurface((previous) => reduceSurfaceActivity(previous, event));
         }
         if (type === "STATE_SNAPSHOT") {
           const snapshot =
@@ -257,6 +271,7 @@ export function Inspector({
   function clearInspector() {
     setRows([]);
     setAction(null);
+    setSurface(EMPTY_SURFACE);
     setFilter("all");
     nextRowId.current = 1;
     toolNames.current.clear();
@@ -294,6 +309,8 @@ export function Inspector({
           {String(agentState?.mode ?? "n/a")}
         </div>
       </div>
+
+      <SurfaceInspector surface={surface} />
 
       <div
         className="flex flex-wrap gap-1 border-b border-slate-100 px-3 py-2"

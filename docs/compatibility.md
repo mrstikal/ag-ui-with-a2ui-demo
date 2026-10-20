@@ -1,7 +1,9 @@
 # Stage 0 compatibility record
 
 Date: 2026-10-20
-Scope: Stage 0 — compatibility and tiny vertical slice.
+Scope: Stage 0 — compatibility and tiny vertical slice. The compatibility
+chain below remains the Stage 0 record; the one-field fixture was superseded by
+the Stage 2 restricted fixture pipeline in `docs/stage-2.md`.
 
 ## Runtime matrix
 
@@ -33,11 +35,13 @@ Installed with plain `npm install` (no `--force`, no `--legacy-peer-deps`).
 | Vitest | 5.0.5 |
 | Express | 5.3.0 |
 
-`@copilotkit/runtime@1.79.1` resolves a nested `@ag-ui/client@1.0.2` and
-`@ag-ui/core@1.0.2`. The workspace root keeps `1.0.3`. Both copies are
-expected; they are not deduplicated or overridden. The bridge uses a
-documented type-only cast for the `LangGraphAgent` because the runtime's
-`CopilotRuntimeOptions["agents"]` type refers to its nested client types.
+`@copilotkit/runtime@1.79.1` resolves a nested `@ag-ui/client@1.0.2`,
+`@ag-ui/core@1.0.2`, and `@ag-ui/langgraph@0.0.44`. The workspace root keeps
+`@ag-ui/client`/`@ag-ui/core` at `1.0.3` and `@ag-ui/langgraph` at `0.0.45`.
+Both copies are expected; they are not deduplicated or overridden. The bridge
+imports the workspace copy and uses a documented type-only cast for the
+`LangGraphAgent` because the runtime's `CopilotRuntimeOptions["agents"]` type
+refers to its nested client types.
 
 ## Decisions verified against installed declarations
 
@@ -72,7 +76,12 @@ documented type-only cast for the `LangGraphAgent` because the runtime's
   validator in `apps/agent/src/fixture.test.ts`, and the browser catalog has
   no implementation for it (`apps/web/src/catalog.test.ts`).
 
-## Vertical slice
+## Vertical slice (historical Stage 0; superseded by Stage 2)
+
+Stage 2 replaced the one-field Stage 0 surface with four fixed bug/feature/
+meeting/generic fixtures while preserving the compatibility chain. The current
+tool is `publish_fixture_operations`; `build_stage0_fixture` no longer exists.
+See `docs/stage-2.md` for the current fixture pipeline.
 
 Processes:
 
@@ -86,17 +95,18 @@ Processes:
 Fixture path:
 
 1. A user prompt appends a human message.
-2. The graph's `plan` node emits a deterministic `build_stage0_fixture` tool
-   call. The tool returns an `a2ui_operations` envelope built with
-   `createSurface`, `updateComponents`, and `updateDataModel` from
-   `@ag-ui/a2ui-toolkit`.
+2. The graph's `plan` node emits a deterministic `publish_fixture_operations`
+   tool call (originally `build_stage0_fixture`). The tool returns a validated
+   `a2ui_operations` envelope built with `createSurface`, `updateComponents`,
+   and `updateDataModel` from `@ag-ui/a2ui-toolkit`; Stage 2 adds the four fixed
+   fixtures and same-surface review updates.
 3. The A2UI middleware converts the tool result to `ACTIVITY_SNAPSHOT`;
    CopilotKit renders the surface with native `TextField` and `Button`.
-4. The click resolves `title` and `revision` from the data model and forwards
-   `forwardedProps.a2uiAction.userAction`.
+4. The click resolves every bound field plus `revision` from the data model and
+   forwards `forwardedProps.a2uiAction.userAction`.
 5. The middleware injects a synthetic `log_a2ui_event` tool call/result; the
-   graph reads the resolved title, advances `status=review`, `revision=1`, and
-   emits a text response.
+   graph validates the resolved values, advances `status=review`,
+   `revision=1`, and (in Stage 2) emits the same-surface update operations.
 6. Channel changes produce `STATE_SNAPSHOT` events.
 
 Fixture text uses `manually_emit_message` plus a persisted `AIMessage` with
@@ -109,8 +119,8 @@ active`.
 ## Verified evidence
 
 - `npm run typecheck` — all workspaces pass.
-- `npm test` — 9 tests pass (agent fixture validation and action parsing,
-  shared catalog contract, browser catalog restriction).
+- `npm test` — 55 tests pass in 9 files (13 agent, 22 shared, 16 web, 4
+  server); the Stage 0 coverage is retained inside the Stage 2 suites.
 - `npm run test:e2e:fixtures` — PASS. It starts the agent and bridge when they
   are not running, then verifies:
   - `RUN_STARTED`, text start/content/end, tool start/result,
@@ -119,12 +129,17 @@ active`.
   - the agent reports `mode=fixture` in `STATE_SNAPSHOT`;
   - `render_a2ui` and `generate_a2ui` are absent from fixture planner tools;
   - the bridge reports `injectA2UITool: false`;
-  - the action keeps the same surface, carries the resolved title, reaches the
-    graph-side `log_a2ui_event` path, and advances state to review/revision 1;
+  - the bug fixture keeps the same surface, carries every resolved field,
+    reaches the graph-side `log_a2ui_event` path, and advances to
+    review/revision 1;
+  - the feature fixture stays editing with in-surface validation; the meeting
+    fixture emits deleteSurface and clears the surface; the generic fixture's
+    stale review is rejected without painting;
   - the LangGraph checkpoint retains the injected action result.
-- Browser check with Playwright: the surface rendered, the bound field accepted
-  `Login fails on Safari`, and the click produced the review response and
-  `status=review`, `revision=1`.
+- Browser check with Playwright: the surface rendered, bound fields accepted
+  resolved values, the click produced the review response and
+  `status=review`, `revision=1`, the same surface updated in place, invalid
+  review painted validation feedback, and discard removed the surface.
 - `npm run test:e2e:live` — **BLOCKED**. No `MODEL_ID` or `MODEL_API_KEY` is
   present in the environment. The script exits with code 2 and a clear message.
   No live text-streaming, tool-capability, or provider evidence exists for
@@ -136,13 +151,14 @@ active`.
   (`MESSAGES_SNAPSHOT.messages`) and state. Sending only the latest user
   message triggers the LangGraph adapter's regenerate path because the
   checkpoint has more messages than the request.
-- The action run does not re-emit `ACTIVITY_SNAPSHOT`; the client retains the
-  initial activity. Its identity is stable (`a2ui-surface-*`), and the surface
-  ID remains in `STATE_SNAPSHOT`.
-- The fixture action does not write `/meta/revision` back to the surface data
-  model. After a successful review, a second click on the unchanged surface is
-  rejected as stale. Stage 4 must re-emit `updateDataModel` (or bump the
-  revision) after an action so repeat edits work.
+- An action run re-emits `ACTIVITY_SNAPSHOT` only when its tool result contains
+  A2UI operations. Stage 0's review emitted none, so the client retained the
+  initial activity; Stage 2 emits updates and the bridge rewrites every surface
+  snapshot to the stable `a2ui-surface-${surfaceId}` message ID. Do not claim
+  an action activity when no operations were emitted.
+- Stage 2's valid review writes path-scoped `/meta/revision`, so the rendered
+  surface can be reviewed again; invalid review keeps the revision unchanged.
+  Stage 4 still owns checkpoint-anchored authoritative revision.
 - The fixture action validates against the thread-derived surface ID, requires
   a non-empty title, and rejects a stale `revision` before incrementing. The
   remaining trust issue is that `state.revision` is still a client-mergeable
