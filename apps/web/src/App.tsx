@@ -1,276 +1,395 @@
-import type { BaseEvent } from "@ag-ui/core";
 import {
   CopilotChat,
+  CopilotChatConfigurationProvider,
   CopilotKit,
   UseAgentUpdate,
   useAgent,
+  useCopilotChatConfiguration,
+  useCopilotKit,
 } from "@copilotkit/react-core/v2";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { catalog } from "./catalog.js";
+import { Inspector } from "./Inspector.js";
 
-interface EventRow {
-  id: number;
-  type: string;
-  detail: string;
-  at: string;
-}
+const EXAMPLE_PROMPTS = [
+  {
+    title: "Login bug",
+    message: "I found a login bug. Help me report it.",
+  },
+  {
+    title: "Dashboard feature",
+    message: "I want to propose a new dashboard feature.",
+  },
+  {
+    title: "Project review meeting",
+    message: "I need to arrange a project review meeting.",
+  },
+] as const;
 
-let nextRowId = 1;
+const MODE_STYLES = {
+  live: "border-emerald-300 bg-emerald-100 text-emerald-900",
+  fixture: "border-amber-300 bg-amber-100 text-amber-900",
+  unknown: "border-rose-300 bg-rose-100 text-rose-900",
+} as const;
 
-function summarizeEvent(event: BaseEvent): EventRow {
-  const record = event as unknown as Record<string, unknown>;
-  const type = String(record.type ?? "UNKNOWN");
-  let detail = "";
-
-  switch (type) {
-    case "RUN_STARTED":
-      detail = `thread=${String(record.threadId ?? "")} run=${String(record.runId ?? "")}`;
-      break;
-    case "RUN_FINISHED":
-    case "RUN_ERROR":
-      detail = `run=${String(record.runId ?? "")}`;
-      break;
-    case "TEXT_MESSAGE_CONTENT":
-      detail = `delta=${String(record.delta ?? "").length} chars`;
-      break;
-    case "STATE_SNAPSHOT": {
-      const snapshot =
-        record.snapshot && typeof record.snapshot === "object"
-          ? (record.snapshot as Record<string, unknown>)
-          : {};
-      detail = JSON.stringify({
-        status: snapshot.status,
-        revision: snapshot.revision,
-        surfaceId: snapshot.surfaceId,
-        category: snapshot.category,
-        summary: snapshot.summary,
-        mode: snapshot.mode,
-      });
-      break;
-    }
-    case "ACTIVITY_SNAPSHOT": {
-      const content =
-        record.content && typeof record.content === "object"
-          ? (record.content as Record<string, unknown>)
-          : {};
-      const operations = Array.isArray(content.a2ui_operations)
-        ? content.a2ui_operations
-        : [];
-      const kinds = operations.map((operation) => {
-        if (!operation || typeof operation !== "object") {
-          return "unknown";
-        }
-        return Object.keys(operation as Record<string, unknown>).find(
-          (key) => key !== "version",
-        );
-      });
-      detail = `activity=${String(record.activityType ?? "")} ops=[${kinds.join(", ")}]`;
-      break;
-    }
-    case "TOOL_CALL_START":
-      detail = `tool=${String(record.toolCallName ?? "")} id=${String(record.toolCallId ?? "")}`;
-      break;
-    case "TOOL_CALL_RESULT":
-      detail = `id=${String(record.toolCallId ?? "")}`;
-      break;
-    default:
-      detail = String(record.runId ? `run=${record.runId}` : "");
-  }
-
-  return {
-    id: nextRowId++,
-    type,
-    detail,
-    at: new Date().toISOString().slice(11, 23),
-  };
-}
-
-function Diagnostics({
-  onGraphMode,
-}: {
-  onGraphMode: (mode: "fixture" | "live") => void;
-}) {
-  const { agent, isReady } = useAgent({
-    agentId: "requestBuilder",
-    updates: [UseAgentUpdate.OnStateChanged],
-  });
-  const [rows, setRows] = useState<EventRow[]>([]);
-  const agentState = agent.state as Record<string, unknown> | undefined;
-
-  useEffect(() => {
-    if (!isReady) {
-      return;
-    }
-
-    const subscription = agent.subscribe({
-      onEvent: ({ event }) => {
-        if (event.type === "STATE_SNAPSHOT") {
-          const snapshot =
-            (event as unknown as { snapshot?: Record<string, unknown> })
-              .snapshot ?? {};
-          if (snapshot.mode === "fixture" || snapshot.mode === "live") {
-            onGraphMode(snapshot.mode);
-          }
-        }
-        setRows((previous) => [...previous.slice(-99), summarizeEvent(event)]);
-      },
-    });
-
-    return () => subscription.unsubscribe();
-  }, [agent, isReady, onGraphMode]);
+export function App() {
+  const [transportError, setTransportError] = useState<string | null>(null);
+  const [runtimeEpoch, setRuntimeEpoch] = useState(0);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-        <h2 className="text-sm font-semibold text-slate-800">
-          Stage 0 diagnostics
-        </h2>
-        <button
-          type="button"
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-          onClick={() => setRows([])}
-        >
-          Clear
-        </button>
-      </div>
-      <p className="border-b border-slate-100 px-3 py-2 text-xs text-slate-500">
-        Real AG-UI events from this agent. State snapshots are summarized without
-        messages or tool payloads.
-      </p>
-      <p className="border-b border-slate-100 px-3 py-2 text-xs text-slate-600">
-        hook state: status={String(agentState?.status ?? "n/a")} revision=
-        {String(agentState?.revision ?? "n/a")} mode=
-        {String(agentState?.mode ?? "n/a")}
-      </p>
-      <ol
-        className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-5"
-        aria-live="polite"
-      >
-        {rows.length === 0 ? (
-          <li className="text-slate-400">
-            Waiting for a run. Send a message to start.
-          </li>
-        ) : (
-          rows.map((row) => (
-            <li key={row.id} className="border-b border-slate-100 py-1">
-              <span className="text-slate-400">{row.at}</span>{" "}
-              <span className="font-semibold text-teal-800">{row.type}</span>
-              {row.detail ? (
-                <span className="block break-all text-slate-600">
-                  {row.detail}
-                </span>
-              ) : null}
-            </li>
-          ))
-        )}
-      </ol>
-    </div>
+    <CopilotKit
+      key={runtimeEpoch}
+      runtimeUrl="/api/copilotkit"
+      agentId="requestBuilder"
+      useSingleEndpoint={true}
+      enableInspector={false}
+      showDevConsole={false}
+      a2ui={{ catalog }}
+      onError={({ error }) => {
+        setTransportError(error.message);
+      }}
+    >
+      <CopilotChatConfigurationProvider agentId="requestBuilder">
+        <Workspace
+          transportError={transportError}
+          onDismissTransportError={() => setTransportError(null)}
+          onRuntimeReconnect={() => {
+            setTransportError(null);
+            setRuntimeEpoch((current) => current + 1);
+          }}
+        />
+      </CopilotChatConfigurationProvider>
+    </CopilotKit>
   );
 }
 
-export function App() {
-  const [threadId, setThreadId] = useState(() => crypto.randomUUID());
+function Workspace({
+  transportError,
+  onDismissTransportError,
+  onRuntimeReconnect,
+}: {
+  transportError: string | null;
+  onDismissTransportError: () => void;
+  onRuntimeReconnect: () => void;
+}) {
+  const config = useCopilotChatConfiguration();
+  const threadId = config?.threadId ?? "uninitialized";
+  const startNewThread = config?.startNewThread;
+  const { agent, isReady } = useAgent({
+    agentId: "requestBuilder",
+    updates: [
+      UseAgentUpdate.OnStateChanged,
+      UseAgentUpdate.OnRunStatusChanged,
+      UseAgentUpdate.OnMessagesChanged,
+    ],
+    throttleMs: 100,
+  });
+  const { copilotkit } = useCopilotKit();
   const [bridgeMode, setBridgeMode] = useState<"fixture" | "live" | "unknown">(
     "unknown",
   );
   const [graphMode, setGraphMode] = useState<"fixture" | "live" | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState(false);
   const mode = graphMode ?? bridgeMode;
   const modeMismatch =
     bridgeMode !== "unknown" && graphMode !== null && bridgeMode !== graphMode;
+  const error = healthError
+    ? "Bridge health check failed. Start the bridge on port 4000."
+    : (transportError ?? runError);
+  const busy = agent.isRunning;
+  const hasMessages = agent.messages.length > 0;
+  const wasRunningRef = useRef(false);
+  const healthErrorRef = useRef(false);
+  const pendingReconnectRef = useRef(false);
+  const isRunningRef = useRef(agent.isRunning);
+  const onRuntimeReconnectRef = useRef(onRuntimeReconnect);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/health")
-      .then((response) => response.json())
-      .then((data: { mode?: string }) => {
-        if (!cancelled) {
-          setBridgeMode(
-            data.mode === "live"
-              ? "live"
-              : data.mode === "fixture"
-                ? "fixture"
-                : "unknown",
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setBridgeMode("unknown");
-        }
+    isRunningRef.current = agent.isRunning;
+  }, [agent.isRunning]);
+
+  useEffect(() => {
+    onRuntimeReconnectRef.current = onRuntimeReconnect;
+  }, [onRuntimeReconnect]);
+
+  const refreshHealth = useCallback(async (): Promise<boolean> => {
+    const wasHealthError = healthErrorRef.current;
+    try {
+      const response = await fetch("/api/health", {
+        signal: AbortSignal.timeout(3000),
       });
-    return () => {
-      cancelled = true;
-    };
+      if (!response.ok) {
+        healthErrorRef.current = true;
+        setHealthError(true);
+        setBridgeMode("unknown");
+        return false;
+      }
+      const data = (await response.json()) as { mode?: string };
+      setBridgeMode(
+        data.mode === "live"
+          ? "live"
+          : data.mode === "fixture"
+            ? "fixture"
+            : "unknown",
+      );
+      healthErrorRef.current = false;
+      setHealthError(false);
+      if (wasHealthError) {
+        if (isRunningRef.current) {
+          pendingReconnectRef.current = true;
+        } else {
+          onRuntimeReconnectRef.current();
+        }
+      }
+      return true;
+    } catch {
+      healthErrorRef.current = true;
+      setHealthError(true);
+      setBridgeMode("unknown");
+      return false;
+    }
   }, []);
 
+  useEffect(() => {
+    const wasRunning = wasRunningRef.current;
+    wasRunningRef.current = agent.isRunning;
+    if (agent.isRunning && !wasRunning) {
+      setRunError(null);
+      onDismissTransportError();
+    }
+    if (!agent.isRunning && wasRunning && pendingReconnectRef.current) {
+      pendingReconnectRef.current = false;
+      onRuntimeReconnectRef.current();
+    }
+  }, [agent.isRunning, onDismissTransportError]);
+
+  useEffect(() => {
+    void refreshHealth();
+    const interval = setInterval(() => {
+      void refreshHealth();
+    }, 5000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [refreshHealth]);
+
+  function handleNewRequest() {
+    if (busy) return;
+    agent.setMessages([]);
+    agent.setState({});
+    startNewThread?.();
+    setRunError(null);
+    onDismissTransportError();
+  }
+
+  async function handleExample(message: string) {
+    if (busy || !isReady) return;
+    setRunError(null);
+    onDismissTransportError();
+    agent.addMessage({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: message,
+    });
+    try {
+      await copilotkit.runAgent({ agent });
+    } catch (caught) {
+      setRunError(
+        caught instanceof Error ? caught.message : "Example run failed",
+      );
+    }
+  }
+
+  async function handleRetry() {
+    if (busy) return;
+    if (healthError) {
+      await refreshHealth();
+      return;
+    }
+    setRunError(null);
+    onDismissTransportError();
+    try {
+      await copilotkit.runAgent({ agent });
+    } catch (caught) {
+      setRunError(
+        caught instanceof Error ? caught.message : "Retry failed unexpectedly",
+      );
+    }
+  }
+
+  function dismissError() {
+    setRunError(null);
+    onDismissTransportError();
+  }
+
   return (
-    <CopilotKit
-      runtimeUrl="/api/copilotkit"
-      agentId="requestBuilder"
-      useSingleEndpoint={true}
-      a2ui={{ catalog }}
-    >
-      <div className="flex h-full flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
-          <div>
+    <div className="flex h-full flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-semibold text-slate-900">
               Adaptive Request Builder
             </h1>
-            <p className="text-xs text-slate-500">
-              Stage 0 compatibility vertical slice
-            </p>
+            <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+              Stage 1
+            </span>
           </div>
+          <p className="text-xs text-slate-500">
+            AG-UI shell and inspector · same run, no extra model request
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span
+            className={`rounded-full border px-2 py-1 font-medium ${MODE_STYLES[mode]}`}
+          >
+            {mode === "live"
+              ? "LIVE"
+              : mode === "fixture"
+                ? "FIXTURE"
+                : "MODE UNKNOWN"}
+          </span>
+          <span
+            className={
+              busy
+                ? "rounded-full border border-sky-300 bg-sky-100 px-2 py-1 font-medium text-sky-900"
+                : error
+                  ? "rounded-full border border-rose-300 bg-rose-100 px-2 py-1 font-medium text-rose-900"
+                  : "rounded-full border border-slate-300 bg-slate-100 px-2 py-1 font-medium text-slate-700"
+            }
+          >
+            {busy ? "RUNNING" : error ? "ERROR" : "IDLE"}
+          </span>
+          <span className="font-mono text-slate-500">
+            thread {shortId(threadId)}
+          </span>
           <button
             type="button"
-            className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800"
-            onClick={() => setThreadId(crypto.randomUUID())}
+            className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleNewRequest}
+            disabled={busy}
           >
             New request
           </button>
-        </header>
-
-        <div
-          className={
-            modeMismatch
-              ? "border-b border-rose-300 bg-rose-100 px-4 py-2 text-sm text-rose-950"
-              : mode === "live"
-                ? "border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900"
-                : mode === "fixture"
-                  ? "border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
-                  : "border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900"
-          }
-          role="status"
-          aria-live="polite"
-        >
-          {modeMismatch
-            ? `MODE MISMATCH - bridge reports ${bridgeMode}, graph reports ${graphMode}. Stop and fix the two AGENT_MODE values.`
-            : mode === "live"
-              ? "LIVE MODEL - prompts are sent to the configured model provider."
-              : mode === "fixture"
-                ? "FIXTURE - NO LIVE MODEL. Deterministic Stage 0 surface only."
-                : "Bridge health unavailable. Start the bridge on port 4000."}
-          <span className="ml-2 text-xs opacity-80">
-            {modeMismatch
-              ? "Do not trust this run until the modes match."
-              : mode === "live"
-                ? "Demo only; prompts are sent to the configured model provider. Do not enter sensitive or real personal data."
-                : "Demo only; fixture mode uses no model provider. Do not enter sensitive or real personal data."}
-          </span>
         </div>
+      </header>
 
-        <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <CopilotChat
-              agentId="requestBuilder"
-              threadId={threadId}
-              labels={{ chatInputPlaceholder: "Describe your request" }}
-            />
-          </section>
-          <aside className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <Diagnostics onGraphMode={setGraphMode} />
-          </aside>
-        </main>
+      <div
+        className={
+          modeMismatch
+            ? "border-b border-rose-300 bg-rose-100 px-4 py-2 text-sm text-rose-950"
+            : mode === "live"
+              ? "border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900"
+              : mode === "fixture"
+                ? "border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+                : "border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900"
+        }
+        role="status"
+        aria-live="polite"
+      >
+        {modeMismatch
+          ? `MODE MISMATCH - bridge reports ${bridgeMode}, graph reports ${graphMode}. Stop and fix the two AGENT_MODE values.`
+          : mode === "live"
+            ? "LIVE MODEL - prompts are sent to the configured model provider."
+            : mode === "fixture"
+              ? "FIXTURE - NO LIVE MODEL. Deterministic Stage 0 surface only."
+              : "Bridge health unavailable. Start the bridge on port 4000."}
+        <span className="ml-2 text-xs opacity-80">
+          {modeMismatch
+            ? "Do not trust this run until the modes match."
+            : mode === "live"
+              ? "Demo only; prompts are sent to the configured model provider. Do not enter sensitive or real personal data."
+              : "Demo only; fixture mode uses no model provider. Do not enter sensitive or real personal data."}
+        </span>
       </div>
-    </CopilotKit>
+
+      {error ? (
+        <div
+          className="flex flex-wrap items-center gap-3 border-b border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-950"
+          role="alert"
+        >
+          <span className="min-w-0 flex-1 break-words">
+            <strong>{healthError ? "Bridge unavailable." : "Run or transport error."}</strong>{" "}
+            {cap(error, 300)}
+          </span>
+          <button
+            type="button"
+            className="rounded border border-rose-400 bg-white px-2 py-1 text-xs font-medium text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleRetry}
+            disabled={busy}
+          >
+            {healthError ? "Reconnect" : "Retry last run"}
+          </button>
+          <button
+            type="button"
+            className="rounded border border-rose-400 bg-white px-2 py-1 text-xs font-medium text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleNewRequest}
+            disabled={busy}
+          >
+            New request
+          </button>
+          {!healthError ? (
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-rose-800 hover:bg-rose-100"
+              onClick={dismissError}
+            >
+              Dismiss
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto p-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(380px,1fr)] lg:overflow-hidden">
+        <section className="flex min-h-[560px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
+          {!hasMessages ? (
+            <div className="border-b border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Try an example
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {EXAMPLE_PROMPTS.map(({ title, message }) => (
+                  <button
+                    key={title}
+                    type="button"
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-500 hover:text-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleExample(message)}
+                    disabled={busy || !isReady}
+                  >
+                    {title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1">
+            <CopilotChat
+              key={threadId}
+              agentId="requestBuilder"
+              labels={{
+                chatInputPlaceholder: "Describe your request, or pick an example",
+              }}
+              className="h-full"
+            />
+          </div>
+        </section>
+        <aside className="flex min-h-[420px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
+          <Inspector
+            threadId={threadId}
+            onGraphMode={setGraphMode}
+            onRunError={setRunError}
+          />
+        </aside>
+      </main>
+    </div>
   );
+}
+
+function shortId(value: string): string {
+  return value.slice(0, 8);
+}
+
+function cap(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...`;
 }

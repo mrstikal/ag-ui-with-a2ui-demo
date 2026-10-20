@@ -171,8 +171,10 @@ active`.
   cross-checks it against the graph state and shows a mismatch instead of
   trusting either side alone.
 - The bridge disables CORS (`cors: false`); the browser is same-origin through
-  the Vite proxy. POST requests without `Content-Length` are rejected with 411
-  so the 64 KiB limit cannot be bypassed by chunked encoding.
+  the Vite proxy. POST requests without `Content-Length` are rejected with 411,
+  and declared lengths above 64 KiB are rejected with 413. Node's HTTP parser
+  enforces the declared length. A future raw-body counter can remove the
+  remaining trust in the header.
 - The telemetry notice from CopilotKit can be disabled with
   `COPILOTKIT_TELEMETRY_DISABLED=true` if desired.
 

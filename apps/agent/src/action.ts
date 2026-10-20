@@ -1,7 +1,11 @@
 import type { BaseMessage } from "@langchain/core/messages";
 import type { AIMessage, ToolMessage } from "@langchain/core/messages";
+import {
+  LOG_A2UI_EVENT_TOOL_NAME,
+  parseForwardedActionText,
+} from "@arb/shared";
 
-export const LOG_A2UI_EVENT_TOOL_NAME = "log_a2ui_event";
+export { LOG_A2UI_EVENT_TOOL_NAME } from "@arb/shared";
 
 export interface ForwardedA2UIAction {
   name: string;
@@ -9,9 +13,6 @@ export interface ForwardedA2UIAction {
   sourceComponentId?: string;
   context: Record<string, unknown>;
 }
-
-const ACTION_PATTERN =
-  /^User performed action "([^"]+)" on surface "([^"]+)"(?: \(component: ([^)]+)\))?\. Context: (.*)$/s;
 
 export function findLastA2UIAction(
   messages: BaseMessage[],
@@ -25,29 +26,8 @@ export function findLastA2UIAction(
     typeof toolMessage.content === "string"
       ? toolMessage.content
       : JSON.stringify(toolMessage.content);
-  const match = ACTION_PATTERN.exec(content);
-  if (!match) {
-    return null;
-  }
 
-  let context: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = JSON.parse(match[4] ?? "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      context = parsed as Record<string, unknown>;
-    }
-  } catch {
-    return null;
-  }
-
-  return {
-    name: match[1] ?? "",
-    surfaceId: match[2],
-    ...(match[3]
-      ? { sourceComponentId: match[3].replace(/^"|"$/g, "") }
-      : {}),
-    context,
-  };
+  return parseForwardedActionText(content);
 }
 
 export function hasUnparsedA2UIAction(messages: BaseMessage[]): boolean {

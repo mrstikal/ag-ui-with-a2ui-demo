@@ -1,6 +1,9 @@
 import catalogSchemaJson from "./catalog-schema.json" with { type: "json" };
 import { ALLOWED_COMPONENTS, CATALOG_ID } from "./constants.js";
 
+export { LOG_A2UI_EVENT_TOOL_NAME, parseForwardedActionText } from "./action.js";
+export type { ForwardedActionPayload } from "./action.js";
+
 export { ALLOWED_COMPONENTS, CATALOG_ID } from "./constants.js";
 export type { AllowedComponent } from "./constants.js";
 export { REQUIRED_FIELD_PATHS } from "./constants.js";

@@ -23,6 +23,7 @@ if (mode !== "fixture" && mode !== "live") {
 const requestBuilderAgent = new LangGraphAgent({
   deploymentUrl,
   graphId,
+  emitRawEvents: false,
 });
 
 const agents = {

@@ -192,14 +192,24 @@ async function main() {
     (response) => response.json(),
   );
   const messages = threadState.values?.messages ?? [];
+  const actionCall = messages
+    .flatMap((message) =>
+      Array.isArray(message.tool_calls) ? message.tool_calls : [],
+    )
+    .find((call) => call.name === "log_a2ui_event");
   assert(
-    messages.some(
-      (message) =>
-        message.type === "tool" &&
-        typeof message.content === "string" &&
-        message.content.includes("Login fails on Safari"),
-    ),
-    "LangGraph checkpoint must retain the injected action result",
+    actionCall && typeof actionCall.id === "string",
+    "LangGraph checkpoint must retain the log_a2ui_event tool call",
+  );
+  const actionResult = messages.find(
+    (message) =>
+      message.type === "tool" && message.tool_call_id === actionCall.id,
+  );
+  assert(
+    actionResult &&
+      typeof actionResult.content === "string" &&
+      actionResult.content.includes("Login fails on Safari"),
+    "LangGraph checkpoint must pair the action tool call with its resolved result",
   );
 
   console.info("[e2e] fixture PASS: text, tool result, activity, state, action round trip");
