@@ -3,8 +3,8 @@ import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch";
 import {
   AIMessage,
   SystemMessage,
+  ToolMessage,
   type BaseMessage,
-  type ToolMessage,
 } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import {
@@ -13,7 +13,13 @@ import {
   StateGraph,
   type LangGraphRunnableConfig,
 } from "@langchain/langgraph";
-import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+import {
+  ACTION_EVIDENCE_EVENT,
+  ACTION_REVIEW_REQUEST,
+  ACTION_SUBMIT_DEMO_REQUEST,
+  SUBMIT_BUTTON_ID,
+} from "@arb/shared";
 import { z } from "zod";
 import {
   findLastA2UIAction,
@@ -22,9 +28,20 @@ import {
 } from "./action.js";
 import { surfaceIdForThread } from "./ids.js";
 import {
+  APPLY_CHANGES_TOOL_NAME,
+  createApplyChangesTool,
   createLiveGenerateTool,
   parseLiveToolResult,
 } from "./live.js";
+import {
+  applyChangePlan,
+  applyReviewAction,
+  applySubmitAction,
+  createSurfaceState,
+  type RequestChange,
+  type RequestActionResult,
+  type SurfaceState,
+} from "./request.js";
 import {
   DISCARD_ACTION_NAME,
   PUBLISH_TOOL_NAME,
@@ -41,6 +58,8 @@ import {
 import { SYSTEM_INSTRUCTIONS } from "./instructions.js";
 import { createChatModel } from "./model.js";
 import {
+  RequestInputSchema,
+  RequestOutputSchema,
   RequestState,
   resolveAgentMode,
   type RequestStateType,
@@ -70,9 +89,13 @@ function messageText(message: BaseMessage | undefined): string {
   return message.content;
 }
 
-function rejection(message: string, summary: string) {
+function rejection(
+  message: string,
+  summary: string,
+  extraMessages: BaseMessage[] = [],
+) {
   return {
-    messages: [fixtureText(message)],
+    messages: [...extraMessages, fixtureText(message)],
     summary,
     mode: "fixture" as const,
   };
@@ -109,6 +132,13 @@ async function planAction(
   config: LangGraphRunnableConfig,
   action: ForwardedA2UIAction,
 ): Promise<Record<string, unknown>> {
+  const compactPair = compactActionPair(state, action);
+  await dispatchCustomEvent(ACTION_EVIDENCE_EVENT, {
+    name: action.name,
+    surfaceId: action.surfaceId,
+    sourceComponentId: action.sourceComponentId,
+    context: action.context,
+  });
   const expectedSurfaceId = makeSurfaceId(config);
   if (
     state.surfaceId !== expectedSurfaceId ||
@@ -116,7 +146,7 @@ async function planAction(
   ) {
     const text = `Rejected action for an unknown surface. Expected ${expectedSurfaceId}.`;
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: surface mismatch");
+    return rejection(text, "Rejected action: surface mismatch", compactPair);
   }
 
   if (
@@ -125,7 +155,7 @@ async function planAction(
   ) {
     const text = `Rejected unknown action "${action.name}".`;
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: unknown name");
+    return rejection(text, "Rejected action: unknown name", compactPair);
   }
 
   const expectedSource =
@@ -135,7 +165,7 @@ async function planAction(
       action.sourceComponentId,
     )}".`;
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: source component mismatch");
+    return rejection(text, "Rejected action: source component mismatch", compactPair);
   }
 
   const revision = action.context.revision;
@@ -147,14 +177,14 @@ async function planAction(
     const text =
       "Rejected action: resolved context must include a non-negative integer revision.";
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: malformed revision");
+    return rejection(text, "Rejected action: malformed revision", compactPair);
   }
   if (revision !== state.revision) {
     const text = `Rejected stale action: surface revision ${String(
       revision,
     )} does not match graph revision ${String(state.revision)}.`;
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: stale revision");
+    return rejection(text, "Rejected action: stale revision", compactPair);
   }
 
   const definition = fixtureForCategory(state.category);
@@ -167,13 +197,17 @@ async function planAction(
     );
     if (!result.painted) {
       await emitTextMessage(result.text);
-      return rejection(result.text, result.summary);
+      return rejection(result.text, result.summary, compactPair);
     }
     const problem = validateActionEnvelope(result.envelope, expectedSurfaceId);
     if (problem) {
       const text = `Rejected discard action: ${problem}`;
       await emitTextMessage(text);
-      return rejection(text, "Rejected action: invalid deleteSurface");
+      return rejection(
+        text,
+        "Rejected action: invalid deleteSurface",
+        compactPair,
+      );
     }
     console.info(
       `[agent] fixture action ${action.name}: ${describeEnvelopeOperations(
@@ -183,6 +217,7 @@ async function planAction(
     await emitTextMessage(result.text);
     return {
       messages: [
+        ...compactPair,
         toolCallMessage(result.text, expectedSurfaceId, result.envelope),
       ],
       status: result.status,
@@ -205,7 +240,7 @@ async function planAction(
   if (problem) {
     const text = `Rejected review action: ${problem}`;
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: invalid update");
+    return rejection(text, "Rejected action: invalid update", compactPair);
   }
 
   console.info(
@@ -217,10 +252,13 @@ async function planAction(
   );
   await emitTextMessage(result.text);
   if (!result.painted) {
-    return rejection(result.text, result.summary);
+    return rejection(result.text, result.summary, compactPair);
   }
   return {
-    messages: [toolCallMessage(result.text, expectedSurfaceId, result.envelope)],
+    messages: [
+      ...compactPair,
+      toolCallMessage(result.text, expectedSurfaceId, result.envelope),
+    ],
     status: result.status,
     revision: result.revision,
     surfaceId: result.surfaceId,
@@ -239,7 +277,11 @@ export async function fixturePlanNode(
     const text =
       "Rejected action: the forwarded log_a2ui_event payload could not be parsed.";
     await emitTextMessage(text);
-    return rejection(text, "Rejected action: unparseable payload");
+    return rejection(
+      text,
+      "Rejected action: unparseable payload",
+      compactActionPair(state, null),
+    );
   }
 
   if (action) {
@@ -387,7 +429,10 @@ function createFixtureGraph() {
     },
   );
 
-  return new StateGraph(RequestState)
+  return new StateGraph(RequestState, {
+    input: RequestInputSchema,
+    output: RequestOutputSchema,
+  })
     .addNode("plan", fixturePlanNode)
     .addNode("tools", new ToolNode([publishTool]))
     .addNode("respond", fixtureRespondNode)
@@ -398,90 +443,649 @@ function createFixtureGraph() {
     .compile();
 }
 
-async function liveObserveNode(
+const PUBLISH_REQUEST_TOOL_NAME = "publish_request_operations";
+const MAX_CONTEXT_KEYS = 32;
+
+function lastToolMessage(
   state: RequestStateType,
-  config: LangGraphRunnableConfig,
-) {
-  const lastTool = [...state.messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.type === "tool" && message.name === "generate_a2ui",
-    ) as ToolMessage | undefined;
-  if (!lastTool) {
-    return {};
-  }
-  const outcome = parseLiveToolResult(messageText(lastTool));
-  if (outcome.kind === "none") {
-    return {};
-  }
-  if (outcome.kind === "failure") {
-    const details =
-      outcome.errors.length > 0
-        ? ` Details: ${outcome.errors.slice(0, 3).join(" | ")}`
-        : "";
-    const text = state.surfaceId
-      ? `A2UI generation failed: ${outcome.message}.${details} The existing form is unchanged.`
-      : `A2UI generation failed: ${outcome.message}.${details} No form was painted; retry with a clearer request.`;
-    await emitTextMessage(text);
-    return {
-      messages: [fixtureText(text)],
-      surfaceId: state.surfaceId,
-      status: state.status,
-      revision: state.revision,
-      summary: `Live generation failed: ${outcome.message}`.slice(0, 160),
-      mode: "live" as const,
-    };
-  }
+  name: string,
+): ToolMessage | undefined {
+  const last = state.messages.at(-1);
+  return last?.type === "tool" && last.name === name
+    ? (last as ToolMessage)
+    : undefined;
+}
 
-  const threadId =
-    typeof config.configurable?.thread_id === "string"
-      ? config.configurable.thread_id
-      : undefined;
-  const expectedSurfaceId = threadId
-    ? surfaceIdForThread(threadId)
-    : outcome.surfaceId;
-  if (outcome.surfaceId !== expectedSurfaceId) {
-    const text = `A2UI generation was rejected: surface ${outcome.surfaceId} does not match the host surface ${expectedSurfaceId}.`;
-    await emitTextMessage(text);
-    return {
-      messages: [fixtureText(text)],
-      surfaceId: state.surfaceId,
-      status: state.status,
-      revision: state.revision,
-      summary: "Live generation surface mismatch",
-      mode: "live" as const,
-    };
-  }
-
-  if (state.surfaceId) {
-    const text =
-      "A form already exists on this thread. Stage 4 adds review and updates; use New request to build another form.";
-    await emitTextMessage(text);
-    return {
-      messages: [fixtureText(text)],
-      surfaceId: state.surfaceId,
-      status: state.status,
-      revision: state.revision,
-      summary: "Live surface already exists",
-      mode: "live" as const,
-    };
-  }
-
+function publicSurfaceState(
+  surface: SurfaceState,
+  summary: string,
+): Record<string, unknown> {
   return {
-    surfaceId: outcome.surfaceId,
-    status: "editing" as const,
-    revision: 0,
-    summary: "Live A2UI surface created",
+    surface,
+    status: surface.status,
+    revision: surface.revision,
+    surfaceId: surface.surfaceId,
+    category: surface.category,
+    summary: summary.slice(0, 160),
     mode: "live" as const,
   };
 }
 
+async function liveReject(
+  state: RequestStateType,
+  text: string,
+  summary: string,
+  extraMessages: BaseMessage[] = [],
+): Promise<Record<string, unknown>> {
+  await emitTextMessage(text);
+  return {
+    messages: [...extraMessages, fixtureText(text)],
+    status: state.surface?.status ?? state.status,
+    revision: state.surface?.revision ?? state.revision,
+    surfaceId: state.surface?.surfaceId ?? state.surfaceId,
+    category: state.surface?.category ?? state.category,
+    summary: summary.slice(0, 160),
+    mode: "live" as const,
+  };
+}
+
+function compactToolMessage(
+  message: ToolMessage,
+  content: string,
+): ToolMessage {
+  return new ToolMessage({
+    id: message.id,
+    content,
+    tool_call_id: message.tool_call_id,
+    name: message.name,
+    status: message.status,
+  });
+}
+
+function compactActionPair(
+  state: RequestStateType,
+  action: ForwardedA2UIAction | null,
+): BaseMessage[] {
+  const last = state.messages.at(-1);
+  if (!last || last.type !== "tool") {
+    return [];
+  }
+  const toolMessage = last as ToolMessage;
+  const aiMessage = findToolCallMessage(
+    state.messages,
+    toolMessage.tool_call_id,
+  );
+  const compactAi = aiMessage
+    ? compactToolCallArgs(aiMessage, toolMessage.tool_call_id, {
+        name: action?.name ?? "log_a2ui_event",
+        surfaceId: action?.surfaceId ?? null,
+        sourceComponentId: action?.sourceComponentId ?? null,
+        revision: action?.context.revision ?? null,
+      })
+    : null;
+  const compactResult = compactToolMessage(
+    toolMessage,
+    JSON.stringify({
+      ok: Boolean(action),
+      action: action?.name ?? "unparseable",
+      surfaceId: action?.surfaceId ?? null,
+    }),
+  );
+  return [...(compactAi ? [compactAi] : []), compactResult];
+}
+
+function findToolCallMessage(
+  messages: BaseMessage[],
+  toolCallId: string,
+): AIMessage | undefined {
+  return messages.find(
+    (message): message is AIMessage =>
+      message.type === "ai" &&
+      Boolean(
+        (message as AIMessage).tool_calls?.some(
+          (call) => call.id === toolCallId,
+        ),
+      ),
+  );
+}
+
+function compactToolCallArgs(
+  message: BaseMessage,
+  toolCallId: string,
+  args: Record<string, unknown>,
+): AIMessage | null {
+  if (message.type !== "ai") {
+    return null;
+  }
+  const ai = message as AIMessage;
+  if (!ai.tool_calls?.some((call) => call.id === toolCallId)) {
+    return null;
+  }
+  return new AIMessage({
+    id: ai.id,
+    content: ai.content,
+    additional_kwargs: ai.additional_kwargs,
+    response_metadata: ai.response_metadata,
+    tool_calls: ai.tool_calls.map((call) =>
+      call.id === toolCallId ? { ...call, args } : call,
+    ),
+  });
+}
+
+function publishRequestMessage(
+  text: string,
+  surfaceId: string,
+  envelope: string,
+): AIMessage {
+  return new AIMessage({
+    content: text,
+    response_metadata: { finish_reason: "stop" },
+    tool_calls: [
+      {
+        id: `call_publish_${randomUUID()}`,
+        name: PUBLISH_REQUEST_TOOL_NAME,
+        args: { surfaceId, envelope },
+      },
+    ],
+  });
+}
+
+async function liveActionNode(
+  state: RequestStateType,
+  config: LangGraphRunnableConfig,
+): Promise<Record<string, unknown>> {
+  const action = findLastA2UIAction(state.messages);
+  const compactPair = compactActionPair(state, action);
+  if (action) {
+    await dispatchCustomEvent(ACTION_EVIDENCE_EVENT, {
+      name: action.name,
+      surfaceId: action.surfaceId,
+      sourceComponentId: action.sourceComponentId,
+      context: action.context,
+    });
+  }
+  if (!action) {
+    return liveReject(
+      state,
+      "Rejected action: the forwarded A2UI action could not be parsed. The form is unchanged.",
+      "Rejected malformed A2UI action",
+      compactPair,
+    );
+  }
+
+  const surface = state.surface;
+  if (!surface) {
+    return liveReject(
+      state,
+      "Rejected action: no request form exists on this thread. Use New request to create one.",
+      "Rejected action without a surface",
+      compactPair,
+    );
+  }
+
+  const expectedSurfaceId = makeSurfaceId(config);
+  if (
+    action.surfaceId !== expectedSurfaceId ||
+    surface.surfaceId !== expectedSurfaceId
+  ) {
+    return liveReject(
+      state,
+      "Rejected action: the action does not belong to this thread's form. The form is unchanged.",
+      "Rejected action surface mismatch",
+      compactPair,
+    );
+  }
+
+  if (Object.keys(action.context).length > MAX_CONTEXT_KEYS) {
+    return liveReject(
+      state,
+      "Rejected action: the resolved context is too large. The form is unchanged.",
+      "Rejected action context too large",
+      compactPair,
+    );
+  }
+
+  let result: RequestActionResult;
+  try {
+    if (action.name === ACTION_REVIEW_REQUEST) {
+      if (action.sourceComponentId !== surface.reviewButtonId) {
+        return liveReject(
+          state,
+          "Rejected review: the action did not come from the current Review request control. The form is unchanged.",
+          "Rejected review source mismatch",
+          compactPair,
+        );
+      }
+      result = applyReviewAction(surface, action.context);
+    } else if (action.name === ACTION_SUBMIT_DEMO_REQUEST) {
+      if (action.sourceComponentId !== SUBMIT_BUTTON_ID) {
+        return liveReject(
+          state,
+          "Rejected submit: the action did not come from the current Submit demo request control. Nothing was sent.",
+          "Rejected submit source mismatch",
+          compactPair,
+        );
+      }
+      result = applySubmitAction(surface, action.context);
+    } else {
+      return liveReject(
+        state,
+        `Rejected action: '${action.name}' is not supported by this app. The form is unchanged.`,
+        "Rejected unsupported A2UI action",
+        compactPair,
+      );
+    }
+  } catch (error) {
+    return liveReject(
+      state,
+      `Action could not be applied: ${
+        error instanceof Error ? error.message : "unknown host error"
+      }. The form is unchanged.`,
+      "Rejected action: host error",
+      compactPair,
+    );
+  }
+
+  console.info(
+    `[a2ui] action=${action.name} source=${action.sourceComponentId} ` +
+      `review=${surface.reviewButtonId} status=${surface.status} ` +
+      `revision=${String(surface.revision)} painted=${String(result.painted)} ` +
+      `summary=${result.summary}`,
+  );
+  if (!result.painted) {
+    await emitTextMessage(result.text);
+    return {
+      messages: [...compactPair, fixtureText(result.text)],
+      status: surface.status,
+      revision: surface.revision,
+      surfaceId: surface.surfaceId,
+      category: surface.category,
+      summary: result.summary,
+      mode: "live" as const,
+    };
+  }
+
+  const problem = validateActionEnvelope(result.envelope, expectedSurfaceId);
+  if (problem) {
+    return liveReject(
+      state,
+      `Action update rejected before paint: ${problem}. The form is unchanged.`,
+      "Rejected action update before paint",
+      compactPair,
+    );
+  }
+
+  await emitTextMessage(result.text);
+  return {
+    ...publicSurfaceState(result.surface, result.summary),
+    messages: [
+      ...compactPair,
+      publishRequestMessage(result.text, expectedSurfaceId, result.envelope),
+    ],
+  };
+}
+
+function parseChangePlan(value: unknown): RequestChange | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const plan = value as {
+    addFields?: unknown;
+    setValues?: unknown;
+  };
+  if (!Array.isArray(plan.addFields)) {
+    return null;
+  }
+  if (!plan.setValues || typeof plan.setValues !== "object" || Array.isArray(plan.setValues)) {
+    return null;
+  }
+  return plan as RequestChange;
+}
+
+async function liveUpdateNode(
+  state: RequestStateType,
+): Promise<Record<string, unknown>> {
+  const surface = state.surface;
+  if (!surface) {
+    return liveReject(
+      state,
+      "Rejected update: no request form exists on this thread.",
+      "Rejected update without a surface",
+    );
+  }
+
+  const toolMessage = lastToolMessage(state, APPLY_CHANGES_TOOL_NAME);
+  if (!toolMessage) {
+    return {};
+  }
+
+  let parsed: unknown;
+  const compactApply = (content: Record<string, unknown>) =>
+    compactToolMessage(toolMessage, JSON.stringify(content));
+  const rejectUpdate = (
+    text: string,
+    summary: string,
+    content: Record<string, unknown>,
+  ) => liveReject(state, text, summary, [compactApply(content)]);
+
+  try {
+    parsed = JSON.parse(messageText(toolMessage));
+  } catch {
+    return rejectUpdate(
+      "The requested change could not be applied because the change intent was not valid JSON. The form is unchanged.",
+      "Rejected update: invalid change JSON",
+      { ok: false, error: "invalid change JSON" },
+    );
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    (parsed as { ok?: unknown }).ok !== true
+  ) {
+    const error =
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { error?: unknown }).error === "string"
+        ? String((parsed as { error: string }).error)
+        : "the change intent was rejected";
+    return rejectUpdate(
+      `The requested change could not be applied: ${error}. The form is unchanged.`,
+      "Rejected update: change intent",
+      { ok: false, error },
+    );
+  }
+
+  const plan = parseChangePlan((parsed as { plan?: unknown }).plan);
+  if (!plan) {
+    return rejectUpdate(
+      "The requested change could not be applied because the bounded change plan was malformed. The form is unchanged.",
+      "Rejected update: malformed change plan",
+      { ok: false, error: "malformed change plan" },
+    );
+  }
+
+  let result: RequestActionResult;
+  try {
+    result = applyChangePlan(surface, plan);
+  } catch (error) {
+    return rejectUpdate(
+      `The requested change could not be applied: ${
+        error instanceof Error ? error.message : "unknown update error"
+      }. The form is unchanged.`,
+      "Rejected update: host apply error",
+      { ok: false, error: "host apply error" },
+    );
+  }
+
+  console.info(
+    `[a2ui] update status=${surface.status} revision=${String(
+      surface.revision,
+    )} fields=${Object.keys(surface.fields).join(",")} ` +
+      `painted=${String(result.painted)} summary=${result.summary}`,
+  );
+  if (!result.painted) {
+    await emitTextMessage(result.text);
+    return {
+      messages: [
+        compactApply({ ok: false, error: result.summary }),
+        fixtureText(result.text),
+      ],
+      status: surface.status,
+      revision: surface.revision,
+      surfaceId: surface.surfaceId,
+      category: surface.category,
+      summary: result.summary,
+      mode: "live" as const,
+    };
+  }
+
+  const problem = validateActionEnvelope(
+    result.envelope,
+    surface.surfaceId,
+  );
+  if (problem) {
+    return rejectUpdate(
+      `Update rejected before paint: ${problem}. The form is unchanged.`,
+      "Rejected update before paint",
+      { ok: false, error: "update failed host validation" },
+    );
+  }
+
+  await emitTextMessage(result.text);
+  return {
+    ...publicSurfaceState(result.surface, result.summary),
+    messages: [
+      compactApply({ ok: true, summary: result.summary }),
+      publishRequestMessage(result.text, surface.surfaceId, result.envelope),
+    ],
+  };
+}
+
+async function liveObserveNode(
+  state: RequestStateType,
+  config: LangGraphRunnableConfig,
+): Promise<Record<string, unknown>> {
+  const generateTool = lastToolMessage(state, "generate_a2ui");
+  if (generateTool) {
+    const outcome = parseLiveToolResult(messageText(generateTool));
+    if (outcome.kind === "none") {
+      return {};
+    }
+    if (outcome.kind === "failure") {
+      const details =
+        outcome.errors.length > 0
+          ? ` Details: ${outcome.errors.slice(0, 3).join(" | ")}`
+          : "";
+      const text = state.surface
+        ? `A2UI generation failed: ${outcome.message}.${details} The existing form is unchanged.`
+        : `A2UI generation failed: ${outcome.message}.${details} No form was painted; retry with a clearer request.`;
+      await emitTextMessage(text);
+      return {
+        messages: [
+          compactToolMessage(
+            generateTool,
+            JSON.stringify({ ok: false, error: outcome.message }),
+          ),
+          fixtureText(text),
+        ],
+        status: state.surface?.status ?? state.status,
+        revision: state.surface?.revision ?? state.revision,
+        surfaceId: state.surface?.surfaceId ?? state.surfaceId,
+        category: state.surface?.category ?? state.category,
+        summary: `Live generation failed: ${outcome.message}`.slice(0, 160),
+        mode: "live" as const,
+      };
+    }
+
+    const expectedSurfaceId = makeSurfaceId(config);
+    const compactGenerate = () =>
+      compactToolMessage(
+        generateTool,
+        JSON.stringify({ ok: true, surfaceId: outcome.surfaceId }),
+      );
+    if (outcome.surfaceId !== expectedSurfaceId) {
+      return liveReject(
+        state,
+        `A2UI generation was rejected: surface ${outcome.surfaceId} does not match the host surface ${expectedSurfaceId}.`,
+        "Live generation surface mismatch",
+        [compactGenerate()],
+      );
+    }
+    if (state.surface) {
+      return liveReject(
+        state,
+        "A second form was rejected. The existing form is unchanged; use apply_request_changes for follow-up edits.",
+        "Live second create rejected",
+        [compactGenerate()],
+      );
+    }
+
+    let surface: SurfaceState;
+    try {
+      surface = createSurfaceState({
+        surfaceId: outcome.surfaceId,
+        category: state.category,
+        components: outcome.components,
+        data: outcome.data ?? {},
+      });
+    } catch (error) {
+      return liveReject(
+        state,
+        `A2UI generation was rejected after validation: ${
+          error instanceof Error ? error.message : "unknown host error"
+        }. No form was painted.`,
+        "Live surface state rejected",
+        [compactGenerate()],
+      );
+    }
+
+    return {
+      ...publicSurfaceState(surface, "Live A2UI surface created"),
+      messages: [
+        compactToolMessage(
+          generateTool,
+          JSON.stringify({
+            ok: true,
+            surfaceId: outcome.surfaceId,
+            summary: "Surface created",
+          }),
+        ),
+      ],
+    };
+  }
+
+  const publishTool = lastToolMessage(state, PUBLISH_REQUEST_TOOL_NAME);
+  if (publishTool && state.surface) {
+    const publishCall = findToolCallMessage(
+      state.messages,
+      publishTool.tool_call_id,
+    );
+    const compactPublishCall = publishCall
+      ? compactToolCallArgs(publishCall, publishTool.tool_call_id, {
+          surfaceId: state.surface.surfaceId,
+          published: true,
+        })
+      : null;
+    const compactPublishTool = (content: Record<string, unknown>) =>
+      compactToolMessage(publishTool, JSON.stringify(content));
+    const problem = validateActionEnvelope(
+      messageText(publishTool),
+      state.surface.surfaceId,
+    );
+    if (problem) {
+      console.error(
+        `[a2ui] internal assertion failed after publish: ${problem}`,
+      );
+      await emitTextMessage(
+        "The host could not confirm the published A2UI update. The server state may be ahead of the rendered surface; use New request to recover.",
+      );
+      return {
+        messages: [
+          ...(compactPublishCall ? [compactPublishCall] : []),
+          compactPublishTool({
+            ok: false,
+            error: "final publish validation failed",
+          }),
+          fixtureText(
+            "The host could not confirm the published A2UI update. The server state may be ahead of the rendered surface; use New request to recover.",
+          ),
+        ],
+        summary: "Final publish validation failed",
+        mode: "live" as const,
+      };
+    }
+    return {
+      mode: "live" as const,
+      summary:
+        state.surface.status === "submitted-demo"
+          ? "Demo request submitted (simulation only)"
+          : "Live surface updated",
+      messages: [
+        ...(compactPublishCall ? [compactPublishCall] : []),
+        compactPublishTool({
+          ok: true,
+          surfaceId: state.surface.surfaceId,
+          status: state.surface.status,
+          revision: state.surface.revision,
+        }),
+      ],
+    };
+  }
+
+  return {};
+}
+
+function routeStart(state: RequestStateType): string {
+  if (findLastA2UIAction(state.messages) || hasUnparsedA2UIAction(state.messages)) {
+    return "action";
+  }
+  return "agent";
+}
+
+function routeAfterAgent(state: RequestStateType): string {
+  const last = state.messages.at(-1);
+  const toolCalls = last ? (last as AIMessage).tool_calls : undefined;
+  return Array.isArray(toolCalls) && toolCalls.length > 0 ? "tools" : END;
+}
+
+function routeAfterTools(state: RequestStateType): string {
+  const last = state.messages.at(-1);
+  if (last?.type === "tool" && last.name === APPLY_CHANGES_TOOL_NAME) {
+    return "update";
+  }
+  return "observe";
+}
+
+function routeAfterUpdate(state: RequestStateType): string {
+  const last = state.messages.at(-1);
+  const toolCalls = last ? (last as AIMessage).tool_calls : undefined;
+  return Array.isArray(toolCalls) && toolCalls.length > 0 ? "tools" : END;
+}
+
+function plannerSurfaceContext(surface: SurfaceState): string {
+  const fields = Object.values(surface.fields)
+    .map((field) => {
+      const options =
+        field.kind === "choice"
+          ? ` options=[${(field.optionLabels ?? [])
+              .map((option) => `${option.label}=${option.value}`)
+              .join(", ")}]`
+          : "";
+      return `- ${field.key}: ${field.kind} "${field.label}"${options}`;
+    })
+    .join("\n");
+  return `Current form (host-owned; use these keys for apply_request_changes):
+${fields}
+status=${surface.status} revision=${String(surface.revision)}. Preserve existing fields unless the user explicitly asks to change them.`;
+}
+
 function createLiveGraph() {
   const model = createChatModel();
-  const tools = [createLiveGenerateTool(model)];
+  const tools = [createLiveGenerateTool(model), createApplyChangesTool()];
   const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
-  const toolNode = new ToolNode(tools);
+  const publishTool = tool(
+    async ({ surfaceId, envelope }: { surfaceId: string; envelope: string }) => {
+      const problem = validateActionEnvelope(envelope, surfaceId);
+      if (problem) {
+        return JSON.stringify({
+          error: `A2UI host update rejected: ${problem}`,
+        });
+      }
+      return envelope;
+    },
+    {
+      name: PUBLISH_REQUEST_TOOL_NAME,
+      description:
+        "Publish host-validated deterministic A2UI review, submit, or update operations. Internal host tool.",
+      schema: z.object({
+        surfaceId: z.string().min(1),
+        envelope: z.string().min(1),
+      }),
+    },
+  );
+  const toolNode = new ToolNode([...tools, publishTool]);
 
   console.info(
     `[agent] live planner tools: ${tools.map((entry) => entry.name).join(", ")}`,
@@ -489,21 +1093,32 @@ function createLiveGraph() {
 
   async function agentNode(state: RequestStateType) {
     const lastMessage = state.messages.at(-1);
-    if (state.surfaceId && lastMessage?.type === "human") {
-      const text =
-        "A form already exists on this thread. Stage 4 adds review and updates; use New request to build another form.";
-      await emitTextMessage(text);
+    if (lastMessage?.type === "human" && messageText(lastMessage).length > MAX_PROMPT_LENGTH) {
+      await emitTextMessage(
+        `The request is longer than ${String(
+          MAX_PROMPT_LENGTH,
+        )} characters. Shorten it and try again.`,
+      );
       return {
-        messages: [fixtureText(text)],
-        summary: "Live surface already exists",
+        messages: [
+          fixtureText(
+            `The request is longer than ${String(
+              MAX_PROMPT_LENGTH,
+            )} characters. Shorten it and try again.`,
+          ),
+        ],
+        summary: "Live prompt rejected: too long",
         mode: "live" as const,
       };
     }
+
     const startedAt = Date.now();
-    const response = await boundModel.invoke([
-      new SystemMessage(SYSTEM_INSTRUCTIONS),
-      ...state.messages,
-    ]);
+    const input: BaseMessage[] = [new SystemMessage(SYSTEM_INSTRUCTIONS)];
+    if (state.surface) {
+      input.push(new SystemMessage(plannerSurfaceContext(state.surface)));
+    }
+    input.push(...state.messages);
+    const response = await boundModel.invoke(input);
     const usage = response.usage_metadata;
     console.info(
       `[agent] live turn latencyMs=${Date.now() - startedAt} ` +
@@ -517,13 +1132,20 @@ function createLiveGraph() {
     };
   }
 
-  return new StateGraph(RequestState)
+  return new StateGraph(RequestState, {
+    input: RequestInputSchema,
+    output: RequestOutputSchema,
+  })
     .addNode("agent", agentNode)
+    .addNode("action", liveActionNode)
     .addNode("tools", toolNode)
+    .addNode("update", liveUpdateNode)
     .addNode("observe", liveObserveNode)
-    .addEdge(START, "agent")
-    .addConditionalEdges("agent", toolsCondition, ["tools", END])
-    .addEdge("tools", "observe")
+    .addConditionalEdges(START, routeStart, ["agent", "action"])
+    .addConditionalEdges("agent", routeAfterAgent, ["tools", END])
+    .addConditionalEdges("action", routeAfterAgent, ["tools", END])
+    .addConditionalEdges("tools", routeAfterTools, ["update", "observe"])
+    .addConditionalEdges("update", routeAfterUpdate, ["tools", END])
     .addEdge("observe", END)
     .compile();
 }

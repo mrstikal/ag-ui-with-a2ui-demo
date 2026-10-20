@@ -14,31 +14,47 @@ export type AllowedComponent = (typeof ALLOWED_COMPONENTS)[number];
 export const REQUIRED_FIELD_PATHS = ["/draft/title", "/draft/details"] as const;
 
 export const ACTION_REVIEW_REQUEST = "reviewRequest";
+export const ACTION_SUBMIT_DEMO_REQUEST = "submitDemoRequest";
 export const ACTION_DISCARD_SURFACE = "discardSurface";
 
 export const ALLOWED_ACTION_NAMES = [
   ACTION_REVIEW_REQUEST,
+  ACTION_SUBMIT_DEMO_REQUEST,
   ACTION_DISCARD_SURFACE,
 ] as const;
 
 export type AllowedActionName = (typeof ALLOWED_ACTION_NAMES)[number];
 
 export const REVIEW_BUTTON_ID = "review";
+export const SUBMIT_BUTTON_ID = "submit";
 export const DISCARD_BUTTON_ID = "discard";
 export const HOST_VALIDATION_COMPONENT_ID = "host_validation";
 export const HOST_STATUS_COMPONENT_ID = "host_status";
 
 export const HOST_COMPONENT_IDS = [
   REVIEW_BUTTON_ID,
+  SUBMIT_BUTTON_ID,
   DISCARD_BUTTON_ID,
   HOST_VALIDATION_COMPONENT_ID,
   HOST_STATUS_COMPONENT_ID,
   "review_label",
+  "submit_label",
   "discard_label",
   "heading",
   "intro",
   "root",
 ] as const;
+
+export const HOST_CONTROL_COMPONENT_IDS = [
+  HOST_VALIDATION_COMPONENT_ID,
+  HOST_STATUS_COMPONENT_ID,
+  SUBMIT_BUTTON_ID,
+  "submit_label",
+] as const;
+
+export const SIMULATION_NOTICE = "Demo only - nothing was sent.";
+
+export const ACTION_EVIDENCE_EVENT = "a2ui_action_evidence";
 
 export const REQUEST_STATUSES = [
   "editing",

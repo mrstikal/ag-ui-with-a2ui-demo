@@ -216,7 +216,7 @@ describe("Stage 3 live generation tool", () => {
     expect(envelope).not.toContain("a2ui_operations");
   });
 
-  it("rejects Stage 3 update intents without creating another surface", async () => {
+  it("rejects update intents without creating another surface", async () => {
     const { components, data } = liveParts();
     const model = staticRenderModel({
       surfaceId: "model-generated",
@@ -232,7 +232,7 @@ describe("Stage 3 live generation tool", () => {
     const envelope = typeof raw === "string" ? raw : JSON.stringify(raw);
 
     expect(parseLiveToolResult(envelope).kind).toBe("failure");
-    expect(envelope).toContain("Stage 3");
+    expect(envelope).toContain("apply_request_changes");
     expect(envelope).not.toContain("a2ui_operations");
   });
 

@@ -416,9 +416,14 @@ async function main() {
   assert(
     actionResult &&
       typeof actionResult.content === "string" &&
-      actionResult.content.includes(bugValues.title) &&
-      actionResult.content.includes(JSON.stringify(bugValues.severity)),
-    "checkpoint must pair the action with resolved field values, not paths",
+      actionResult.content.includes('"action":"reviewRequest"') &&
+      !actionResult.content.includes(bugValues.title) &&
+      !actionResult.content.includes(JSON.stringify(bugValues.severity)),
+    "checkpoint must compact the consumed action pair after validation",
+  );
+  assert(
+    !JSON.stringify(actionCall.args ?? {}).includes(bugValues.title),
+    "checkpoint must not retain resolved values in compacted action args",
   );
 
   const invalidValues = {

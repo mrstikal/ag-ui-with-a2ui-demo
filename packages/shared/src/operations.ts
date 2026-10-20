@@ -1,6 +1,9 @@
 import { z } from "zod";
 import catalogSchemaJson from "./catalog-schema.json" with { type: "json" };
 import {
+  ACTION_DISCARD_SURFACE,
+  ACTION_REVIEW_REQUEST,
+  ACTION_SUBMIT_DEMO_REQUEST,
   ALLOWED_ACTION_NAMES,
   ALLOWED_COMPONENTS,
   CATALOG_ID,
@@ -40,6 +43,18 @@ export interface FieldRule {
   kind: "text" | "choice";
   required: boolean;
   options?: string[];
+}
+
+export interface FieldOption {
+  label: string;
+  value: string;
+}
+
+export interface FieldSpec extends FieldRule {
+  key: string;
+  label: string;
+  multiline?: boolean;
+  optionLabels?: FieldOption[];
 }
 
 export interface ComponentTreeValidation {
@@ -236,8 +251,10 @@ const HOST_ID_TYPES: Record<string, readonly string[]> = {
   heading: ["Text"],
   intro: ["Text"],
   review: ["Button"],
+  submit: ["Button"],
   discard: ["Button"],
   review_label: ["Text"],
+  submit_label: ["Text"],
   discard_label: ["Text"],
   host_validation: ["Text"],
   host_status: ["Text"],
@@ -528,10 +545,11 @@ function validateActionEvent(
   }
 
   const context = event.context;
-  const expectedKeys =
-    name === "reviewRequest"
-      ? [...Object.keys(fields), "revision"].sort()
-      : ["revision"];
+  const requiresFieldContext =
+    name === ACTION_REVIEW_REQUEST || name === ACTION_SUBMIT_DEMO_REQUEST;
+  const expectedKeys = requiresFieldContext
+    ? [...Object.keys(fields), "revision"].sort()
+    : ["revision"];
   const actualKeys = Object.keys(context).sort();
   if (actualKeys.join(",") !== expectedKeys.join(",")) {
     addError(
@@ -569,7 +587,7 @@ function validateActionEvent(
       }
       continue;
     }
-    if (name === "discardSurface") {
+    if (name === ACTION_DISCARD_SURFACE) {
       addError(
         errors,
         "invalid_action_context",
@@ -996,6 +1014,73 @@ export function deriveFieldRules(
   components: unknown,
 ): Record<string, FieldRule> {
   return validateComponentTree(components).fields;
+}
+
+export function deriveFieldSpecs(
+  components: unknown,
+): Record<string, FieldSpec> {
+  const specs: Record<string, FieldSpec> = {};
+  if (!Array.isArray(components)) {
+    return specs;
+  }
+
+  for (const component of components) {
+    if (
+      !isRecord(component) ||
+      (component.component !== "TextField" &&
+        component.component !== "ChoicePicker")
+    ) {
+      continue;
+    }
+    const valuePath = dynamicPath(component.value);
+    if (valuePath === null) {
+      continue;
+    }
+    const match = DRAFT_PATH.exec(valuePath);
+    const key = match?.[1];
+    if (!key || !FIELD_KEY.test(key) || specs[key]) {
+      continue;
+    }
+    const label =
+      typeof component.label === "string" ? component.label : key;
+    if (component.component === "TextField") {
+      specs[key] = {
+        key,
+        label,
+        kind: "text",
+        required: (REQUIRED_FIELD_PATHS as readonly string[]).includes(
+          valuePath,
+        ),
+        ...(component.variant === "longText" ? { multiline: true } : {}),
+      };
+      continue;
+    }
+
+    const options: FieldOption[] = [];
+    if (Array.isArray(component.options)) {
+      for (const option of component.options) {
+        if (
+          isRecord(option) &&
+          typeof option.label === "string" &&
+          typeof option.value === "string"
+        ) {
+          options.push({ label: option.label, value: option.value });
+        }
+      }
+    }
+    specs[key] = {
+      key,
+      label,
+      kind: "choice",
+      required: (REQUIRED_FIELD_PATHS as readonly string[]).includes(
+        valuePath,
+      ),
+      options: options.map((option) => option.value),
+      optionLabels: options,
+    };
+  }
+
+  return specs;
 }
 
 export function initializeDataModel(

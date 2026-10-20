@@ -146,6 +146,26 @@ active`.
   per-thread surface IDs. No fixture or fake-model result was used as live
   evidence. See `docs/stage-3.md` and `docs/stage-3-trace.json`.
 
+### Stage 4
+
+- `npm run typecheck && npm test && npm run build` — PASS on 2026-10-20.
+- `npm run test:e2e:fixtures` — PASS; the fixture graph keeps deterministic
+  Stage 2 behavior and now runs with messages-only input and public-only output
+  schemas.
+- `npm run test:e2e:live` — PASS on 2026-10-20 with OpenRouter
+  `deepseek/deepseek-v4.1-flash-1017`. The Stage 4 journey covers invalid
+  review, valid review, a real natural-language high-priority/justification
+  update through `apply_request_changes`, stale review rejection, re-review,
+  changed-after-review submit, submit with the exact
+  `Demo only - nothing was sent.` notice, and a rejected double submit. Every
+  action kept the same surface; `STATE_SNAPSHOT` never exposed `surface`,
+  `components`, `fields`, `values`, `draft`, `reviewedValues`, or
+  `reviewedRevision`.
+- Browser check with Playwright: review, model update (priority + justification
+  with existing values preserved), re-review, submit, exact notice, and New
+  request reset to a fresh thread with zero inspector events. See
+  `docs/stage-4.md`.
+
 ## Compatibility traps for later stages
 
 - The action request must include the full client message snapshot
@@ -159,12 +179,20 @@ active`.
   an action activity when no operations were emitted.
 - Stage 2's valid review writes path-scoped `/meta/revision`, so the rendered
   surface can be reviewed again; invalid review keeps the revision unchanged.
-  Stage 4 still owns checkpoint-anchored authoritative revision.
-- The fixture action validates against the thread-derived surface ID, requires
-  a non-empty title, and rejects a stale `revision` before incrementing. The
-  remaining trust issue is that `state.revision` is still a client-mergeable
-  channel; Stage 4 must anchor the authoritative revision in the checkpoint
-  rather than the merged input state.
+  Stage 4 anchors the authoritative revision/status/component tree in a private
+  `surface` checkpoint channel, not in client-mergeable public state.
+- The live graph compacts tool-call args/results after the A2UI middleware
+  consumes them, including the injected `log_a2ui_event` pair after action
+  validation. The action node emits a one-shot `a2ui_action_evidence` custom
+  event so the inspector still shows resolved action values without persisting
+  them in message history. Without compaction, repeated review/update/submit
+  runs exceed the bridge's 64 KiB request body limit.
+- LangGraph runtime schema extraction ignores `Annotation.Root` input/output
+  options; use Interop Zod objects for `input`/`output` so the API exposes
+  `input_schema`/`output_schema` and the AG-UI adapter filters private state.
+- Deterministic action updates use `publish_request_operations` with a
+  host-validated envelope. Do not bypass this by putting A2UI operations in a
+  generic text response; the middleware only emits activity from tool results.
 - The UI banner prefers the graph's `STATE_SNAPSHOT.mode` over the bridge
   health mode and renders a loud `MODE MISMATCH` state if the two disagree.
   The diagnostics panel also displays `status`, `revision`, and `mode` from

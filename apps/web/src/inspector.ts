@@ -1,5 +1,6 @@
 import type { BaseEvent } from "@ag-ui/core";
 import {
+  ACTION_EVIDENCE_EVENT,
   LOG_A2UI_EVENT_TOOL_NAME,
   parseForwardedActionText,
   type ForwardedActionPayload,
@@ -237,7 +238,27 @@ export function describeEvent(
         },
       };
     }
-    case "CUSTOM":
+    case "CUSTOM": {
+      if (record.name === ACTION_EVIDENCE_EVENT) {
+        const value = objectOrEmpty(record.value);
+        const name = stringOrUndefined(value.name);
+        const surfaceId = stringOrUndefined(value.surfaceId);
+        const sourceComponentId = stringOrUndefined(value.sourceComponentId);
+        const context = objectOrEmpty(value.context);
+        if (name && surfaceId) {
+          return {
+            family,
+            summary: `forwarded action "${name}" on ${surfaceId}`,
+            payload: {
+              name,
+              surfaceId,
+              sourceComponentId,
+              contextKeys: Object.keys(context),
+            },
+            action: { name, surfaceId, sourceComponentId, context },
+          };
+        }
+      }
       return {
         family,
         summary: `custom ${String(record.name ?? "?")}`,
@@ -246,6 +267,7 @@ export function describeEvent(
           valueLength: textLength(record.value),
         },
       };
+    }
     case "RAW":
       return {
         family,

@@ -7,19 +7,24 @@ export type { ForwardedActionPayload } from "./action.js";
 
 export {
   ACTION_DISCARD_SURFACE,
+  ACTION_EVIDENCE_EVENT,
   ACTION_REVIEW_REQUEST,
+  ACTION_SUBMIT_DEMO_REQUEST,
   ALLOWED_ACTION_NAMES,
   ALLOWED_COMPONENTS,
   CATALOG_ID,
   DISCARD_BUTTON_ID,
   FIELD_KEY_PATTERN,
   HOST_COMPONENT_IDS,
+  HOST_CONTROL_COMPONENT_IDS,
   HOST_STATUS_COMPONENT_ID,
   HOST_VALIDATION_COMPONENT_ID,
   LIMITS,
   REQUEST_STATUSES,
   REQUIRED_FIELD_PATHS,
   REVIEW_BUTTON_ID,
+  SIMULATION_NOTICE,
+  SUBMIT_BUTTON_ID,
 } from "./constants.js";
 export type {
   AllowedActionName,
@@ -33,6 +38,7 @@ export {
   createSurfaceOperation,
   deleteSurfaceOperation,
   deriveFieldRules,
+  deriveFieldSpecs,
   extractOperations,
   initializeDataModel,
   operationKind,
@@ -47,7 +53,9 @@ export {
 } from "./operations.js";
 export type {
   ComponentTreeValidation,
+  FieldOption,
   FieldRule,
+  FieldSpec,
   OperationEnvelopeValidation,
   SurfaceValidationError,
 } from "./operations.js";

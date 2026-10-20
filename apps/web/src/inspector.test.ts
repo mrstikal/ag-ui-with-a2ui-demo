@@ -189,6 +189,35 @@ describe("inspector redaction", () => {
     expect(JSON.stringify(description.payload)).not.toContain("SECRET");
   });
 
+  it("captures compact live action evidence from the custom event", () => {
+    const description = describeEvent(
+      asEvent({
+        type: "CUSTOM",
+        name: "a2ui_action_evidence",
+        value: {
+          name: "reviewRequest",
+          surfaceId: "surface-1",
+          sourceComponentId: "review-button",
+          context: { title: "Login fails", revision: 2 },
+        },
+      }),
+    );
+
+    expect(description.action).toEqual({
+      name: "reviewRequest",
+      surfaceId: "surface-1",
+      sourceComponentId: "review-button",
+      context: { title: "Login fails", revision: 2 },
+    });
+    expect(description.summary).toContain("forwarded action");
+    expect(description.payload).toEqual({
+      name: "reviewRequest",
+      surfaceId: "surface-1",
+      sourceComponentId: "review-button",
+      contextKeys: ["title", "revision"],
+    });
+  });
+
   it("captures forwarded action evidence without exposing raw tool content", () => {
     const description = describeEvent(
       asEvent({

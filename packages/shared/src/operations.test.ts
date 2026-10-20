@@ -173,7 +173,7 @@ describe("strict A2UI fixture schemas", () => {
     const review = tree.find((entry) => entry.id === "review") as {
       action: { event: { name: string } };
     };
-    review.action.event.name = "submitDemoRequest";
+    review.action.event.name = "sendRequestNow";
 
     const result = validateComponentTree(tree);
 
@@ -181,6 +181,18 @@ describe("strict A2UI fixture schemas", () => {
     expect(result.errors.map((error) => error.code)).toContain(
       "unknown_action",
     );
+  });
+
+  it("accepts the deterministic submit action with every field and revision", () => {
+    const tree = components();
+    const review = tree.find((entry) => entry.id === "review") as {
+      action: { event: { name: string } };
+    };
+    review.action.event.name = "submitDemoRequest";
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(true);
   });
 
   it("rejects a malformed binding path", () => {

@@ -4,8 +4,12 @@ import { tool } from "@langchain/core/tools";
 import {
   ACTION_REVIEW_REQUEST,
   CATALOG_ID,
+  HOST_CONTROL_COMPONENT_IDS,
+  HOST_STATUS_COMPONENT_ID,
+  HOST_VALIDATION_COMPONENT_ID,
   componentBindingPaths,
   componentTypes,
+  deriveFieldSpecs,
   extractOperations,
   operationKind,
   operationSurfaceId,
@@ -20,9 +24,16 @@ import {
   createGenerateA2UITool,
 } from "./catalog.js";
 import { draftSurfaceIdForThread, surfaceIdForThread } from "./ids.js";
+import {
+  normalizeChangePlan,
+  type SurfaceState,
+} from "./request.js";
+
+export const APPLY_CHANGES_TOOL_NAME = "apply_request_changes";
 
 const MAX_LOGGED_ERRORS = 8;
 const MAX_CACHED_TOOLS = 50;
+const RESERVED_HOST_CONTROL_IDS = new Set<string>(HOST_CONTROL_COMPONENT_IDS);
 
 export interface LiveEnvelopeResult {
   valid: boolean;
@@ -194,6 +205,84 @@ function normalizeOperations(
   }
 }
 
+function normalizeRootComponent(
+  components: Array<Record<string, unknown>>,
+  errors: string[],
+): void {
+  const root = components.find((component) => component.id === "root");
+  if (!root || root.component === "Column") {
+    return;
+  }
+  if (root.component !== "Card") {
+    return;
+  }
+  if (typeof root.child !== "string" || root.child.length === 0) {
+    errors.push("A Card root must reference a child component.");
+    return;
+  }
+
+  const used = new Set(
+    components
+      .map((component) => component.id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  let cardId = "form_card";
+  for (let index = 2; used.has(cardId); index += 1) {
+    cardId = `form_card_${String(index)}`;
+  }
+  root.id = cardId;
+  components.push({
+    id: "root",
+    component: "Column",
+    children: [cardId],
+  });
+}
+
+function attachHostControls(
+  components: Array<Record<string, unknown>>,
+  errors: string[],
+): void {
+  for (const component of components) {
+    if (
+      typeof component.id === "string" &&
+      RESERVED_HOST_CONTROL_IDS.has(component.id)
+    ) {
+      errors.push(
+        `Model output may not use the host-reserved component id '${component.id}'.`,
+      );
+    }
+  }
+  if (errors.length > 0) {
+    return;
+  }
+
+  const root = components.find((component) => component.id === "root");
+  if (!root || root.component !== "Column") {
+    return;
+  }
+
+  components.push(
+    {
+      id: HOST_VALIDATION_COMPONENT_ID,
+      component: "Text",
+      text: { path: "/errors/summary" },
+      variant: "body",
+    },
+    {
+      id: HOST_STATUS_COMPONENT_ID,
+      component: "Text",
+      text: "Editing - this demo request has not been reviewed or sent.",
+      variant: "body",
+    },
+  );
+  const children = Array.isArray(root.children)
+    ? root.children.filter(
+        (child): child is string => typeof child === "string",
+      )
+    : [];
+  root.children = [...new Set([...children, HOST_VALIDATION_COMPONENT_ID, HOST_STATUS_COMPONENT_ID])];
+}
+
 export function normalizeLiveEnvelope(
   envelope: string,
   surfaceId: string,
@@ -271,6 +360,11 @@ export function normalizeLiveEnvelope(
     console.info(`[a2ui] live component repairs: ${repairs.join(", ")}`);
   }
   normalizeActionContexts(components, errors);
+  normalizeRootComponent(components, errors);
+  attachHostControls(components, errors);
+  if (isRecord(rawComponents) && Array.isArray(rawComponents.components)) {
+    rawComponents.components = components;
+  }
   const tree = validateComponentTree(components);
   for (const error of tree.errors) {
     errors.push(`${error.path}: ${error.message}`);
@@ -309,6 +403,31 @@ export function normalizeLiveEnvelope(
       for (const key of Object.keys(tree.fields)) {
         if (!(key in draft)) {
           errors.push(`data.draft.${key} must be initialized.`);
+        }
+      }
+      const specs = deriveFieldSpecs(components);
+      for (const [key, spec] of Object.entries(specs)) {
+        if (spec.kind !== "choice") {
+          continue;
+        }
+        const current = draft[key];
+        const candidate =
+          typeof current === "string"
+            ? current === ""
+              ? []
+              : [current]
+            : current;
+        if (
+          Array.isArray(candidate) &&
+          candidate.every(
+            (entry) =>
+              typeof entry === "string" &&
+              (spec.options ?? []).includes(entry),
+          )
+        ) {
+          draft[key] = candidate;
+        } else {
+          draft[key] = [];
         }
       }
     }
@@ -505,6 +624,17 @@ function componentActionNames(
   });
 }
 
+function isSurfaceState(value: unknown): value is SurfaceState {
+  return (
+    isRecord(value) &&
+    typeof value.surfaceId === "string" &&
+    typeof value.status === "string" &&
+    typeof value.revision === "number" &&
+    isRecord(value.fields) &&
+    Array.isArray(value.components)
+  );
+}
+
 export function createLiveGenerateTool(model: BaseChatModel) {
   const template = createGenerateA2UITool(model, A2UI_TOOL_SURFACE_SENTINEL);
   const innerTools = new Map<string, ReturnType<typeof createGenerateA2UITool>>();
@@ -534,14 +664,17 @@ export function createLiveGenerateTool(model: BaseChatModel) {
       const surfaceId = surfaceIdForThread(threadId);
       const draftSurfaceId = draftSurfaceIdForThread(threadId);
       const state = isRecord(config) && isRecord(config.state) ? config.state : undefined;
-      if (typeof state?.surfaceId === "string" && state.surfaceId.length > 0) {
+      if (
+        (typeof state?.surfaceId === "string" && state.surfaceId.length > 0) ||
+        isSurfaceState(state?.surface)
+      ) {
         return liveFailureEnvelope(
-          "A form already exists on this thread; Stage 3 creates one surface per thread.",
+          "A form already exists on this thread; use apply_request_changes for follow-up edits instead of creating another surface.",
         );
       }
       if (args.intent === "update") {
         return liveFailureEnvelope(
-          "Stage 3 supports creating one surface per thread; update is Stage 4.",
+          "generate_a2ui is create-only in this app; use apply_request_changes to update the existing form.",
         );
       }
       let raw: unknown;
@@ -578,7 +711,7 @@ export function createLiveGenerateTool(model: BaseChatModel) {
     {
       name: template.name,
       description:
-        "Create one new A2UI surface for the user's request from the approved catalog. Stage 3 creates exactly one surface per thread; do not use intent='update'.",
+        "Create one new A2UI surface for the user's request from the approved catalog. Use only for the first form on a thread. Never use intent='update'; follow-up edits use apply_request_changes.",
       schema: z.object({
         intent: z
           .enum(["create", "update"])
@@ -592,6 +725,64 @@ export function createLiveGenerateTool(model: BaseChatModel) {
           .string()
           .optional()
           .describe(GENERATE_A2UI_ARG_DESCRIPTIONS.changes),
+      }),
+    },
+  );
+}
+
+export function createApplyChangesTool() {
+  return tool(
+    async (args, config) => {
+      const state =
+        isRecord(config) && isRecord(config.state) ? config.state : undefined;
+      if (!isSurfaceState(state?.surface)) {
+        return JSON.stringify({
+          ok: false,
+          error:
+            "No request form exists on this thread yet. Call generate_a2ui to create the first form.",
+        });
+      }
+      return JSON.stringify(normalizeChangePlan(state.surface, args));
+    },
+    {
+      name: APPLY_CHANGES_TOOL_NAME,
+      description:
+        "Update the existing A2UI request form after the user asks for a revision, new field, or changed value. Use add_fields for new inputs and set_values for existing or newly added inputs. Preserve every field not mentioned here; never create or replace the surface. Use lowercase snake_case field keys. A choice field needs bounded options and one approved value. Do not use this tool to create the first form.",
+      schema: z.object({
+        summary: z
+          .string()
+          .max(300)
+          .optional()
+          .describe("Short user-facing summary of the requested change."),
+        add_fields: z
+          .array(
+            z.object({
+              key: z
+                .string()
+                .describe("Lowercase snake_case field key, for example priority."),
+              label: z.string().describe("User-facing field label."),
+              kind: z.enum(["text", "choice"]),
+              required: z.boolean().optional(),
+              multiline: z.boolean().optional(),
+              options: z
+                .array(
+                  z.object({
+                    label: z.string(),
+                    value: z.string(),
+                  }),
+                )
+                .optional()
+                .describe("Required for choice fields; 1-8 unique options."),
+            }),
+          )
+          .max(4)
+          .optional(),
+        set_values: z
+          .record(z.union([z.string(), z.array(z.string())]))
+          .optional()
+          .describe(
+            "Canonical string values keyed by an existing or newly added field key.",
+          ),
       }),
     },
   );
