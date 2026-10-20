@@ -1,4 +1,16 @@
 /.idea
 /AGUI_A2UI_Tailwind_Implementation_Plan_base.md
-/AGENTS.md
 /agent-memory
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.langgraph_api/
+test-results/
+playwright-report/
+
+/.vscode

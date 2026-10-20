@@ -1,0 +1,931 @@
+{
+  "catalogId": "arb://catalog/request-builder.v1",
+  "components": {
+    "Text": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "Text"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/0"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                }
+              ],
+              "description": "The text content to display. While simple Markdown formatting is supported (i.e. without HTML, images, or links), utilizing dedicated UI components is generally preferred for a richer and more structured presentation."
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "caption",
+                "body"
+              ],
+              "default": "body",
+              "description": "A hint for the base text style."
+            }
+          },
+          "required": [
+            "component",
+            "text"
+          ]
+        }
+      ]
+    },
+    "Column": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "Column"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "children": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "description": "REF:common_types.json#/$defs/ComponentId|The unique identifier for a component."
+                  },
+                  "description": "A static list of child component IDs."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "componentId": {
+                      "$ref": "#/properties/children/anyOf/0/items"
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "The path to the list of component property objects in the data model."
+                    }
+                  },
+                  "required": [
+                    "componentId",
+                    "path"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A template for generating a dynamic list of children."
+                }
+              ],
+              "description": "Defines the children. Use an array of strings for a fixed set of children, or a template object to generate children from a data list. Children cannot be defined inline, they must be referred to by ID."
+            },
+            "justify": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "spaceBetween",
+                "spaceAround",
+                "spaceEvenly",
+                "stretch"
+              ],
+              "default": "start",
+              "description": "Defines the arrangement of children along the main axis (vertically). Use 'spaceBetween' to push items to the edges (e.g. header at top, footer at bottom), or 'start'/'end'/'center' to pack them together."
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "center",
+                "end",
+                "start",
+                "stretch"
+              ],
+              "default": "stretch",
+              "description": "Defines the alignment of children along the cross axis (horizontally). This is similar to the CSS 'align-items' property."
+            }
+          },
+          "required": [
+            "component",
+            "children"
+          ]
+        }
+      ]
+    },
+    "Card": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "Card"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "child": {
+              "type": "string",
+              "description": "The ID of the single child component to be rendered inside the card. To display multiple elements, you MUST wrap them in a layout component (like Column or Row) and pass that container's ID here. Do NOT pass multiple IDs or a non-existent ID. Do NOT define the child component inline."
+            }
+          },
+          "required": [
+            "component",
+            "child"
+          ]
+        }
+      ]
+    },
+    "Button": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "Button"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "child": {
+              "type": "string",
+              "description": "The ID of the child component. Use a 'Text' component for a labeled button. Only use an 'Icon' if the requirements explicitly ask for an icon-only button. Do NOT define the child component inline."
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "default",
+                "primary",
+                "borderless"
+              ],
+              "default": "default",
+              "description": "A hint for the button style. If omitted, a default button style is used. 'primary' indicates this is the main call-to-action button. 'borderless' means the button has no visual border or background, making its child content appear like a clickable link."
+            },
+            "action": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "event": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "context": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "array"
+                              },
+                              {
+                                "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                              },
+                              {
+                                "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                              }
+                            ],
+                            "description": "REF:common_types.json#/$defs/DynamicValue|A value that can be a literal, a path, or a function call returning any type."
+                          }
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "event"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Triggers a server-side event."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "functionCall": {
+                      "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                    }
+                  },
+                  "required": [
+                    "functionCall"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Executes a local client-side function."
+                }
+              ],
+              "description": "REF:common_types.json#/$defs/Action"
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "condition": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                      }
+                    ],
+                    "description": "REF:common_types.json#/$defs/DynamicBoolean|A boolean value that can be a literal, a path, or a function call returning a boolean."
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "The error message to display if the check fails."
+                  }
+                },
+                "required": [
+                  "condition",
+                  "message"
+                ],
+                "additionalProperties": false,
+                "description": "REF:common_types.json#/$defs/CheckRule|A check rule consisting of a condition and an error message."
+              },
+              "description": "A list of checks to perform."
+            }
+          },
+          "required": [
+            "component",
+            "child",
+            "action"
+          ]
+        }
+      ]
+    },
+    "TextField": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "TextField"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/0"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                }
+              ],
+              "description": "The text label for the input field."
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/0"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                }
+              ],
+              "description": "The value of the text field."
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "longText",
+                "number",
+                "shortText",
+                "obscured"
+              ],
+              "default": "shortText",
+              "description": "The type of input field to display."
+            },
+            "validationRegexp": {
+              "type": "string",
+              "description": "A regular expression used for client-side validation of the input."
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "condition": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                      }
+                    ],
+                    "description": "REF:common_types.json#/$defs/DynamicBoolean|A boolean value that can be a literal, a path, or a function call returning a boolean."
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "The error message to display if the check fails."
+                  }
+                },
+                "required": [
+                  "condition",
+                  "message"
+                ],
+                "additionalProperties": false,
+                "description": "REF:common_types.json#/$defs/CheckRule|A check rule consisting of a condition and an error message."
+              },
+              "description": "A list of checks to perform."
+            }
+          },
+          "required": [
+            "component",
+            "label"
+          ]
+        }
+      ]
+    },
+    "ChoicePicker": {
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "properties": {
+            "component": {
+              "const": "ChoicePicker"
+            },
+            "accessibility": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "A JSON Pointer path to a value in the data model."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/DataBinding|A JSON Pointer path to a value in the data model."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "string",
+                          "description": "The name of the function to call."
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": {},
+                          "description": "Arguments passed to the function."
+                        },
+                        "returnType": {
+                          "type": "string",
+                          "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "array",
+                            "object",
+                            "any",
+                            "void"
+                          ],
+                          "default": "boolean"
+                        }
+                      },
+                      "required": [
+                        "call",
+                        "args"
+                      ],
+                      "additionalProperties": false,
+                      "description": "REF:common_types.json#/$defs/FunctionCall|Invokes a named function on the client."
+                    }
+                  ],
+                  "description": "REF:common_types.json#/$defs/DynamicString|A short string used by assistive technologies to convey the purpose of an element."
+                },
+                "description": {
+                  "$ref": "#/properties/accessibility/properties/label",
+                  "description": "REF:common_types.json#/$defs/DynamicString|Additional information provided by assistive technologies about an element."
+                }
+              },
+              "additionalProperties": false,
+              "description": "REF:common_types.json#/$defs/AccessibilityAttributes|Attributes to enhance accessibility."
+            },
+            "weight": {
+              "type": "number",
+              "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column."
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/0"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                }
+              ],
+              "description": "The label for the group of options."
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "multipleSelection",
+                "mutuallyExclusive"
+              ],
+              "default": "mutuallyExclusive",
+              "description": "A hint for how the choice picker should be displayed and behave."
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/0"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                      }
+                    ],
+                    "description": "The text to display for this option."
+                  },
+                  "value": {
+                    "type": "string",
+                    "description": "The stable value associated with this option."
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "description": "The list of available options to choose from."
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                },
+                {
+                  "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                }
+              ],
+              "description": "The list of currently selected values. This should be bound to a string array in the data model."
+            },
+            "displayStyle": {
+              "type": "string",
+              "enum": [
+                "checkbox",
+                "chips"
+              ],
+              "default": "checkbox",
+              "description": "The display style of the component."
+            },
+            "filterable": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, displays a search input to filter the options."
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "condition": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/1"
+                      },
+                      {
+                        "$ref": "#/properties/accessibility/properties/label/anyOf/2"
+                      }
+                    ],
+                    "description": "REF:common_types.json#/$defs/DynamicBoolean|A boolean value that can be a literal, a path, or a function call returning a boolean."
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "The error message to display if the check fails."
+                  }
+                },
+                "required": [
+                  "condition",
+                  "message"
+                ],
+                "additionalProperties": false,
+                "description": "REF:common_types.json#/$defs/CheckRule|A check rule consisting of a condition and an error message."
+              },
+              "description": "A list of checks to perform."
+            }
+          },
+          "required": [
+            "component",
+            "options",
+            "value"
+          ]
+        }
+      ]
+    }
+  }
+}

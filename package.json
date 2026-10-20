@@ -1,0 +1,27 @@
+{
+  "name": "adaptive-request-builder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev:agent": "npm run dev --workspace @arb/agent",
+    "dev:server": "npm run dev --workspace @arb/server",
+    "dev:web": "npm run dev --workspace @arb/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test:e2e:fixtures": "node tests/e2e/fixtures.mjs",
+    "test:e2e:live": "node tests/e2e/live.mjs",
+    "generate:catalog-schema": "node --experimental-strip-types scripts/generate-catalog-schema.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
