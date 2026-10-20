@@ -119,8 +119,8 @@ active`.
 ## Verified evidence
 
 - `npm run typecheck` — all workspaces pass.
-- `npm test` — 55 tests pass in 9 files (13 agent, 22 shared, 16 web, 4
-  server); the Stage 0 coverage is retained inside the Stage 2 suites.
+- `npm test` — 82 tests pass in 12 files (33 agent, 22 shared, 16 web, 11
+  server); the Stage 0 coverage is retained inside the Stage 2/3 suites.
 - `npm run test:e2e:fixtures` — PASS. It starts the agent and bridge when they
   are not running, then verifies:
   - `RUN_STARTED`, text start/content/end, tool start/result,
@@ -140,10 +140,11 @@ active`.
   resolved values, the click produced the review response and
   `status=review`, `revision=1`, the same surface updated in place, invalid
   review painted validation feedback, and discard removed the surface.
-- `npm run test:e2e:live` — **BLOCKED**. No `MODEL_ID` or `MODEL_API_KEY` is
-  present in the environment. The script exits with code 2 and a clear message.
-  No live text-streaming, tool-capability, or provider evidence exists for
-  Stage 0. Fixture evidence is not a substitute.
+- `npm run test:e2e:live` — **PASS** on 2026-10-20 in Stage 3 with OpenRouter
+  `deepseek/deepseek-v4.1-flash-1017`: four real model-composed surfaces,
+  streaming text events, `generate_a2ui`, catalog-resolved activities, and
+  per-thread surface IDs. No fixture or fake-model result was used as live
+  evidence. See `docs/stage-3.md` and `docs/stage-3-trace.json`.
 
 ## Compatibility traps for later stages
 
@@ -173,15 +174,15 @@ active`.
   matters once the catalog grows to components that use `componentRef` fields
   beyond the hardcoded `child`/`children` checks.
 - The installed `ChoicePicker` renderer stores its value as an array, even for
-  `mutuallyExclusive`. The plan's string-valued single-selection contract must
-  be adapted in Stage 3 (bind an array) or implemented as a custom component.
-- Fixture text has one content chunk per message. Only a real model can prove
-  multi-chunk streaming.
+  `mutuallyExclusive`. Fixture and live validation normalize a one-item array and
+  force the plan's single-select contract; the renderer still stores an array.
+- Fixture text has one content chunk per message. Stage 3's live run proved
+  real model streaming through AG-UI text start/content/end events.
 - The live graph binds its single tool with `parallel_tool_calls: false` and
   logs per-turn latency plus token usage when the provider supplies it.
-- The live graph currently uses the toolkit sentinel surface ID. Per-thread
-  surface rewriting and server-side host-path enforcement from Stage 3/4 are
-  not implemented in Stage 0.
+- Stage 0's live graph used the toolkit sentinel surface ID. Stage 3 replaces
+  it with a private draft surface, a trusted thread surface, and host-side
+  path/action validation.
 - `AGENT_MODE` is required and has no silent fallback in both processes.
   The bridge's `/api/health` still reports its own `AGENT_MODE`; the UI
   cross-checks it against the graph state and shows a mismatch instead of
@@ -205,7 +206,7 @@ npm run dev:web
 npm run typecheck
 npm test
 npm run test:e2e:fixtures
-MODEL_ID=... MODEL_API_KEY=... npm run test:e2e:live
+LIVE_TRACE_PATH=test-results/live-stage3-trace.json npm run test:e2e:live
 ```
 
 Copy `apps/agent/.env.example` to `apps/agent/.env` and

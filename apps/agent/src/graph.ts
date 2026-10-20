@@ -20,7 +20,11 @@ import {
   hasUnparsedA2UIAction,
   type ForwardedA2UIAction,
 } from "./action.js";
-import { createGenerateA2UITool } from "./catalog.js";
+import { surfaceIdForThread } from "./ids.js";
+import {
+  createLiveGenerateTool,
+  parseLiveToolResult,
+} from "./live.js";
 import {
   DISCARD_ACTION_NAME,
   PUBLISH_TOOL_NAME,
@@ -348,9 +352,8 @@ function makeSurfaceId(config: LangGraphRunnableConfig): string {
   const threadId =
     typeof config.configurable?.thread_id === "string"
       ? config.configurable.thread_id
-      : randomUUID();
-  const safeThread = threadId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
-  return `surface-${safeThread}`;
+      : undefined;
+  return surfaceIdForThread(threadId);
 }
 
 function routeFixturePlan(state: RequestStateType): string {
@@ -395,9 +398,88 @@ function createFixtureGraph() {
     .compile();
 }
 
+async function liveObserveNode(
+  state: RequestStateType,
+  config: LangGraphRunnableConfig,
+) {
+  const lastTool = [...state.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.type === "tool" && message.name === "generate_a2ui",
+    ) as ToolMessage | undefined;
+  if (!lastTool) {
+    return {};
+  }
+  const outcome = parseLiveToolResult(messageText(lastTool));
+  if (outcome.kind === "none") {
+    return {};
+  }
+  if (outcome.kind === "failure") {
+    const details =
+      outcome.errors.length > 0
+        ? ` Details: ${outcome.errors.slice(0, 3).join(" | ")}`
+        : "";
+    const text = state.surfaceId
+      ? `A2UI generation failed: ${outcome.message}.${details} The existing form is unchanged.`
+      : `A2UI generation failed: ${outcome.message}.${details} No form was painted; retry with a clearer request.`;
+    await emitTextMessage(text);
+    return {
+      messages: [fixtureText(text)],
+      surfaceId: state.surfaceId,
+      status: state.status,
+      revision: state.revision,
+      summary: `Live generation failed: ${outcome.message}`.slice(0, 160),
+      mode: "live" as const,
+    };
+  }
+
+  const threadId =
+    typeof config.configurable?.thread_id === "string"
+      ? config.configurable.thread_id
+      : undefined;
+  const expectedSurfaceId = threadId
+    ? surfaceIdForThread(threadId)
+    : outcome.surfaceId;
+  if (outcome.surfaceId !== expectedSurfaceId) {
+    const text = `A2UI generation was rejected: surface ${outcome.surfaceId} does not match the host surface ${expectedSurfaceId}.`;
+    await emitTextMessage(text);
+    return {
+      messages: [fixtureText(text)],
+      surfaceId: state.surfaceId,
+      status: state.status,
+      revision: state.revision,
+      summary: "Live generation surface mismatch",
+      mode: "live" as const,
+    };
+  }
+
+  if (state.surfaceId) {
+    const text =
+      "A form already exists on this thread. Stage 4 adds review and updates; use New request to build another form.";
+    await emitTextMessage(text);
+    return {
+      messages: [fixtureText(text)],
+      surfaceId: state.surfaceId,
+      status: state.status,
+      revision: state.revision,
+      summary: "Live surface already exists",
+      mode: "live" as const,
+    };
+  }
+
+  return {
+    surfaceId: outcome.surfaceId,
+    status: "editing" as const,
+    revision: 0,
+    summary: "Live A2UI surface created",
+    mode: "live" as const,
+  };
+}
+
 function createLiveGraph() {
   const model = createChatModel();
-  const tools = [createGenerateA2UITool(model)];
+  const tools = [createLiveGenerateTool(model)];
   const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
   const toolNode = new ToolNode(tools);
 
@@ -406,6 +488,17 @@ function createLiveGraph() {
   );
 
   async function agentNode(state: RequestStateType) {
+    const lastMessage = state.messages.at(-1);
+    if (state.surfaceId && lastMessage?.type === "human") {
+      const text =
+        "A form already exists on this thread. Stage 4 adds review and updates; use New request to build another form.";
+      await emitTextMessage(text);
+      return {
+        messages: [fixtureText(text)],
+        summary: "Live surface already exists",
+        mode: "live" as const,
+      };
+    }
     const startedAt = Date.now();
     const response = await boundModel.invoke([
       new SystemMessage(SYSTEM_INSTRUCTIONS),
@@ -427,9 +520,11 @@ function createLiveGraph() {
   return new StateGraph(RequestState)
     .addNode("agent", agentNode)
     .addNode("tools", toolNode)
+    .addNode("observe", liveObserveNode)
     .addEdge(START, "agent")
     .addConditionalEdges("agent", toolsCondition, ["tools", END])
-    .addEdge("tools", "agent")
+    .addEdge("tools", "observe")
+    .addEdge("observe", END)
     .compile();
 }
 

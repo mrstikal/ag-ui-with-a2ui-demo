@@ -232,11 +232,11 @@ function Workspace({
               Adaptive Request Builder
             </h1>
             <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-              Stage 2
+              Stage 3
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            A2UI fixture pipeline · bug, feature, and meeting surfaces
+            Live model composition · catalog-validated A2UI surfaces
           </p>
         </div>
 
@@ -291,7 +291,7 @@ function Workspace({
         {modeMismatch
           ? `MODE MISMATCH - bridge reports ${bridgeMode}, graph reports ${graphMode}. Stop and fix the two AGENT_MODE values.`
           : mode === "live"
-            ? "LIVE MODEL - prompts are sent to the configured model provider."
+            ? "LIVE MODEL - generate_a2ui composes one form from the shared catalog; host validation runs before paint."
             : mode === "fixture"
               ? "FIXTURE - NO LIVE MODEL. Fixed bug, feature, and meeting A2UI surfaces; actions round-trip through the graph."
               : "Bridge health unavailable. Start the bridge on port 4000."}

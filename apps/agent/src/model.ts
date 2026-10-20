@@ -1,6 +1,27 @@
 import { ChatOpenAI } from "@langchain/openai";
 
-const DEFAULT_TOKEN_CAP = 1024;
+const DEFAULT_TOKEN_CAP = 2_048;
+const MIN_TOKEN_CAP = 256;
+const MAX_TOKEN_CAP = 32_000;
+
+function readTokenCap(): number {
+  const raw = process.env.MODEL_MAX_TOKENS?.trim();
+  if (!raw) {
+    return DEFAULT_TOKEN_CAP;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (
+    !Number.isInteger(parsed) ||
+    String(parsed) !== raw ||
+    parsed < MIN_TOKEN_CAP ||
+    parsed > MAX_TOKEN_CAP
+  ) {
+    throw new Error(
+      `MODEL_MAX_TOKENS must be an integer between ${String(MIN_TOKEN_CAP)} and ${String(MAX_TOKEN_CAP)}.`,
+    );
+  }
+  return parsed;
+}
 
 export function createChatModel(): ChatOpenAI {
   const modelId = process.env.MODEL_ID?.trim();
@@ -23,7 +44,7 @@ export function createChatModel(): ChatOpenAI {
     apiKey,
     model: modelId,
     temperature: 0,
-    maxTokens: DEFAULT_TOKEN_CAP,
+    maxTokens: readTokenCap(),
     ...(baseURL ? { configuration: { baseURL } } : {}),
   });
 }

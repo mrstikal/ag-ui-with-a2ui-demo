@@ -38,6 +38,7 @@ const runtime = new CopilotRuntime({
   runner: new InMemoryAgentRunner(),
   a2ui: {
     injectA2UITool: false,
+    a2uiToolNames: [],
     schema: toMiddlewareCatalog(inlineCatalogSchema),
     defaultCatalogId: CATALOG_ID,
   },
@@ -53,6 +54,7 @@ app.get("/api/health", (_request, response) => {
     catalogId: CATALOG_ID,
     a2ui: {
       injectA2UITool: false,
+      a2uiToolNames: [],
       defaultCatalogId: CATALOG_ID,
     },
   });

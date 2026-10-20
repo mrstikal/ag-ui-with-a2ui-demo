@@ -1,8 +1,8 @@
 # Stage 1 — usable AG-UI shell and inspector
 
 Date: 2026-10-20
-Status: implemented; fixture evidence passes. The live text-run exit gate remains
-BLOCKED because this environment has no `MODEL_ID` or `MODEL_API_KEY`.
+Status: implemented; fixture evidence passes. The live text-run exit gate was
+subsequently proven in Stage 3 on 2026-10-20; see `docs/stage-3.md`.
 
 ## Implemented shell
 
@@ -92,8 +92,9 @@ BLOCKED because this environment has no `MODEL_ID` or `MODEL_API_KEY`.
   one `{"method":"agent/run"}` for the example. The inspector is
   subscription-only; the 5 s `/api/health` poll is a bridge probe, not a model
   request.
-- `npm run test:e2e:live` — **BLOCKED**, exit 2. No live text streaming in the
-  browser can be claimed until `MODEL_ID` and `MODEL_API_KEY` are provided.
+- `npm run test:e2e:live` — was **BLOCKED** at Stage 1 (exit 2, missing
+  credentials). It subsequently passed in Stage 3 on 2026-10-20 with a real
+  OpenRouter model; see `docs/stage-3.md`.
 
 ## Compatibility notes
 

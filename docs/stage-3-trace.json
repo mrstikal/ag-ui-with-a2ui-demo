@@ -1,0 +1,153 @@
+[
+  {
+    "label": "bug",
+    "threadId": "f08a1d67-30c5-44d2-b4af-c435958d7210",
+    "modelTool": "generate_a2ui",
+    "activity": {
+      "surfaceId": "surface-f08a1d67-30c5-44d2-b4af-c435958d7210",
+      "catalogId": "arb://catalog/request-builder.v1",
+      "operations": [
+        "createSurface",
+        "updateComponents",
+        "updateDataModel"
+      ],
+      "componentCount": 6,
+      "componentTypes": [
+        "Column",
+        "Text",
+        "TextField",
+        "TextField",
+        "Button",
+        "Text"
+      ],
+      "bindingPaths": [
+        "/draft/details",
+        "/draft/title"
+      ],
+      "actionNames": [
+        "reviewRequest"
+      ]
+    },
+    "state": {
+      "mode": "live",
+      "status": "editing",
+      "revision": 0
+    }
+  },
+  {
+    "label": "feature",
+    "threadId": "31836c30-316c-4f4f-9ad3-31a00e0a08f0",
+    "modelTool": "generate_a2ui",
+    "activity": {
+      "surfaceId": "surface-31836c30-316c-4f4f-9ad3-31a00e0a08f0",
+      "catalogId": "arb://catalog/request-builder.v1",
+      "operations": [
+        "createSurface",
+        "updateComponents",
+        "updateDataModel"
+      ],
+      "componentCount": 8,
+      "componentTypes": [
+        "Card",
+        "Column",
+        "Text",
+        "TextField",
+        "TextField",
+        "ChoicePicker",
+        "Button",
+        "Text"
+      ],
+      "bindingPaths": [
+        "/draft/details",
+        "/draft/priority",
+        "/draft/title"
+      ],
+      "actionNames": [
+        "reviewRequest"
+      ]
+    },
+    "state": {
+      "mode": "live",
+      "status": "editing",
+      "revision": 0
+    }
+  },
+  {
+    "label": "meeting",
+    "threadId": "a14dd3bf-7a0e-4401-adaa-f2b1678549c2",
+    "modelTool": "generate_a2ui",
+    "activity": {
+      "surfaceId": "surface-a14dd3bf-7a0e-4401-adaa-f2b1678549c2",
+      "catalogId": "arb://catalog/request-builder.v1",
+      "operations": [
+        "createSurface",
+        "updateComponents",
+        "updateDataModel"
+      ],
+      "componentCount": 9,
+      "componentTypes": [
+        "Column",
+        "Text",
+        "TextField",
+        "TextField",
+        "ChoicePicker",
+        "TextField",
+        "TextField",
+        "Button",
+        "Text"
+      ],
+      "bindingPaths": [
+        "/draft/attendees",
+        "/draft/details",
+        "/draft/location",
+        "/draft/meeting_date",
+        "/draft/title"
+      ],
+      "actionNames": [
+        "reviewRequest"
+      ]
+    },
+    "state": {
+      "mode": "live",
+      "status": "editing",
+      "revision": 0
+    }
+  },
+  {
+    "label": "custom",
+    "threadId": "5e6eeb47-6160-43da-99e8-eecc5dc292e7",
+    "modelTool": "generate_a2ui",
+    "activity": {
+      "surfaceId": "surface-5e6eeb47-6160-43da-99e8-eecc5dc292e7",
+      "catalogId": "arb://catalog/request-builder.v1",
+      "operations": [
+        "createSurface",
+        "updateComponents",
+        "updateDataModel"
+      ],
+      "componentCount": 7,
+      "componentTypes": [
+        "Column",
+        "Text",
+        "TextField",
+        "TextField",
+        "ChoicePicker",
+        "Button",
+        "Text"
+      ],
+      "bindingPaths": [
+        "/draft/details",
+        "/draft/laptop_model",
+        "/draft/title"
+      ],
+      "actionNames": [
+        "reviewRequest"
+      ]
+    },
+    "state": {
+      "mode": "live",
+      "status": "editing",
+      "revision": 0
+    }
+  }
+]
