@@ -3,6 +3,7 @@ import {
   ACTION_EVIDENCE_EVENT,
   LOG_A2UI_EVENT_TOOL_NAME,
   parseForwardedActionText,
+  redactActionContext,
   type ForwardedActionPayload,
 } from "@arb/shared";
 
@@ -148,6 +149,10 @@ export function describeEvent(
           ? parseForwardedActionText(content)
           : null;
       if (action) {
+        const redactedAction = {
+          ...action,
+          context: redactActionContext(action.context),
+        };
         return {
           family,
           summary: `forwarded action "${action.name}" on ${action.surfaceId}`,
@@ -157,7 +162,7 @@ export function describeEvent(
             surfaceId: action.surfaceId,
             sourceComponentId: action.sourceComponentId,
           },
-          action,
+          action: redactedAction,
         };
       }
       return {
@@ -244,7 +249,10 @@ export function describeEvent(
         const name = stringOrUndefined(value.name);
         const surfaceId = stringOrUndefined(value.surfaceId);
         const sourceComponentId = stringOrUndefined(value.sourceComponentId);
-        const context = objectOrEmpty(value.context);
+        const context =
+          value.contextRedacted === true
+            ? objectOrEmpty(value.context)
+            : redactActionContext(objectOrEmpty(value.context));
         if (name && surfaceId) {
           return {
             family,
@@ -343,7 +351,10 @@ function latestForwardedAction(
     }
     const action = parseForwardedActionText(message.content);
     if (action) {
-      return action;
+      return {
+        ...action,
+        context: redactActionContext(action.context),
+      };
     }
   }
   return null;

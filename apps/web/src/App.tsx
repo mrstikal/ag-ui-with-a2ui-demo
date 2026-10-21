@@ -7,8 +7,14 @@ import {
   useCopilotChatConfiguration,
   useCopilotKit,
 } from "@copilotkit/react-core/v2";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { catalog } from "./catalog.js";
+import {
+  INITIAL_HEALTH_STATE,
+  reconcileHealth,
+  type HealthMode,
+} from "./health.js";
+import { trimClientMessages } from "./history.js";
 import { Inspector } from "./Inspector.js";
 
 const EXAMPLE_PROMPTS = [
@@ -85,9 +91,7 @@ function Workspace({
     throttleMs: 100,
   });
   const { copilotkit } = useCopilotKit();
-  const [bridgeMode, setBridgeMode] = useState<"fixture" | "live" | "unknown">(
-    "unknown",
-  );
+  const [bridgeMode, setBridgeMode] = useState<HealthMode>("unknown");
   const [graphMode, setGraphMode] = useState<"fixture" | "live" | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [healthError, setHealthError] = useState(false);
@@ -100,80 +104,150 @@ function Workspace({
   const busy = agent.isRunning;
   const hasMessages = agent.messages.length > 0;
   const wasRunningRef = useRef(false);
-  const healthErrorRef = useRef(false);
+  const healthStateRef = useRef(INITIAL_HEALTH_STATE);
   const pendingReconnectRef = useRef(false);
   const isRunningRef = useRef(agent.isRunning);
   const onRuntimeReconnectRef = useRef(onRuntimeReconnect);
+  const failedActionRef = useRef<Record<string, unknown> | null>(null);
+  const retryingRef = useRef(false);
+  const healthRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  const actionClickLockRef = useRef(false);
+  const actionClickTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (actionClickTimerRef.current !== null) {
+        window.clearTimeout(actionClickTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     isRunningRef.current = agent.isRunning;
   }, [agent.isRunning]);
 
   useEffect(() => {
+    const captureFailedAction = () => {
+      const forwardedAction = copilotkit.properties.a2uiAction;
+      failedActionRef.current =
+        forwardedAction &&
+        typeof forwardedAction === "object" &&
+        !Array.isArray(forwardedAction)
+          ? (forwardedAction as Record<string, unknown>)
+          : null;
+    };
     const subscription = agent.subscribe({
       onRunFailed: ({ error }) => {
+        captureFailedAction();
         setRunError(
           error instanceof Error && error.message
             ? error.message
             : "Agent run failed",
         );
       },
+      onRunErrorEvent: ({ event }) => {
+        if ((event as { code?: string }).code === "abort") {
+          return;
+        }
+        captureFailedAction();
+      },
     });
     return () => subscription.unsubscribe();
-  }, [agent]);
+  }, [agent, copilotkit]);
+
+  useEffect(() => {
+    if (agent.isRunning) {
+      return;
+    }
+    const trimmed = trimClientMessages(agent.messages);
+    if (trimmed.length !== agent.messages.length) {
+      agent.setMessages(trimmed);
+    }
+  }, [agent, agent.messages, agent.isRunning]);
 
   useEffect(() => {
     onRuntimeReconnectRef.current = onRuntimeReconnect;
   }, [onRuntimeReconnect]);
 
   const refreshHealth = useCallback(async (): Promise<boolean> => {
-    const wasHealthError = healthErrorRef.current;
+    const requestId = healthRequestIdRef.current + 1;
+    healthRequestIdRef.current = requestId;
+    let observation: {
+      ok: boolean;
+      mode?: HealthMode;
+      instanceId?: string;
+    };
     try {
       const response = await fetch("/api/health", {
         signal: AbortSignal.timeout(3000),
       });
       if (!response.ok) {
-        healthErrorRef.current = true;
-        setHealthError(true);
-        setBridgeMode("unknown");
-        return false;
+        observation = { ok: false };
+      } else {
+        const data = (await response.json()) as {
+          mode?: unknown;
+          instanceId?: unknown;
+        };
+        observation = {
+          ok: true,
+          mode:
+            data.mode === "live"
+              ? "live"
+              : data.mode === "fixture"
+                ? "fixture"
+                : "unknown",
+          ...(typeof data.instanceId === "string"
+            ? { instanceId: data.instanceId }
+            : {}),
+        };
       }
-      const data = (await response.json()) as { mode?: string };
-      setBridgeMode(
-        data.mode === "live"
-          ? "live"
-          : data.mode === "fixture"
-            ? "fixture"
-            : "unknown",
-      );
-      healthErrorRef.current = false;
-      setHealthError(false);
-      if (wasHealthError) {
-        if (isRunningRef.current) {
-          pendingReconnectRef.current = true;
-        } else {
-          onRuntimeReconnectRef.current();
-        }
-      }
-      return true;
     } catch {
-      healthErrorRef.current = true;
-      setHealthError(true);
-      setBridgeMode("unknown");
-      return false;
+      observation = { ok: false };
     }
+
+    if (requestId !== healthRequestIdRef.current || !mountedRef.current) {
+      return observation.ok;
+    }
+
+    const result = reconcileHealth(healthStateRef.current, observation);
+    healthStateRef.current = result.state;
+    if (result.mode) {
+      setBridgeMode(result.mode);
+    }
+    setHealthError(result.showError);
+    if (result.serverRestarted) {
+      if (isRunningRef.current) {
+        pendingReconnectRef.current = true;
+      } else {
+        onRuntimeReconnectRef.current();
+      }
+    }
+    return observation.ok;
   }, []);
 
   useEffect(() => {
     const wasRunning = wasRunningRef.current;
     wasRunningRef.current = agent.isRunning;
     if (agent.isRunning && !wasRunning) {
+      if (!retryingRef.current) {
+        failedActionRef.current = null;
+      }
       setRunError(null);
       onDismissTransportError();
     }
     if (!agent.isRunning && wasRunning && pendingReconnectRef.current) {
       pendingReconnectRef.current = false;
       onRuntimeReconnectRef.current();
+    }
+    if (!agent.isRunning) {
+      actionClickLockRef.current = false;
+      if (actionClickTimerRef.current !== null) {
+        window.clearTimeout(actionClickTimerRef.current);
+        actionClickTimerRef.current = null;
+      }
     }
   }, [agent.isRunning, onDismissTransportError]);
 
@@ -189,6 +263,7 @@ function Workspace({
 
   function handleNewRequest() {
     if (busy) return;
+    failedActionRef.current = null;
     agent.setMessages([]);
     agent.setState({});
     startNewThread?.();
@@ -198,6 +273,7 @@ function Workspace({
 
   async function handleExample(message: string) {
     if (busy || !isReady) return;
+    failedActionRef.current = null;
     setRunError(null);
     onDismissTransportError();
     agent.addMessage({
@@ -220,20 +296,63 @@ function Workspace({
       await refreshHealth();
       return;
     }
+    const forwardedAction = failedActionRef.current;
+    failedActionRef.current = null;
     setRunError(null);
     onDismissTransportError();
+    retryingRef.current = true;
+    if (forwardedAction) {
+      copilotkit.setProperties({
+        ...copilotkit.properties,
+        a2uiAction: forwardedAction,
+      });
+    }
     try {
       await copilotkit.runAgent({ agent });
     } catch (caught) {
+      if (forwardedAction && !failedActionRef.current) {
+        failedActionRef.current = forwardedAction;
+      }
       setRunError(
         caught instanceof Error ? caught.message : "Retry failed unexpectedly",
       );
+    } finally {
+      retryingRef.current = false;
+      if (forwardedAction) {
+        const rest = { ...copilotkit.properties };
+        delete rest.a2uiAction;
+        copilotkit.setProperties(rest);
+      }
     }
   }
 
   function dismissError() {
     setRunError(null);
     onDismissTransportError();
+  }
+
+  function handleChatClickCapture(event: MouseEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const button = target.closest(".a2ui-surface button");
+    if (!button || !button.firstElementChild) {
+      return;
+    }
+    if (agent.isRunning || actionClickLockRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    actionClickLockRef.current = true;
+    if (actionClickTimerRef.current !== null) {
+      window.clearTimeout(actionClickTimerRef.current);
+    }
+    actionClickTimerRef.current = window.setTimeout(() => {
+      actionClickLockRef.current = false;
+      actionClickTimerRef.current = null;
+    }, 400);
   }
 
   return (
@@ -245,7 +364,7 @@ function Workspace({
               Adaptive Request Builder
             </h1>
             <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-              Stage 5
+              Version 0.1.0
             </span>
           </div>
           <p className="text-xs text-slate-500">
@@ -377,7 +496,11 @@ function Workspace({
               </div>
             </div>
           ) : null}
-          <div className="min-h-0 flex-1">
+          <div
+            className={`min-h-0 flex-1${busy ? " a2ui-busy" : ""}`}
+            onClickCapture={handleChatClickCapture}
+            aria-busy={busy}
+          >
             <CopilotChat
               key={threadId}
               agentId="requestBuilder"

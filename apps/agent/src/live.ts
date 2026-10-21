@@ -131,9 +131,12 @@ function repairLiveComponents(
         repairs.add(`dropped ${property}`);
       }
     }
+    if (component.component === "TextField" && "validationRegexp" in component) {
+      delete component.validationRegexp;
+      repairs.add("dropped validationRegexp");
+    }
     if (
       component.component === "ChoicePicker" &&
-      typeof component.variant === "string" &&
       component.variant !== "mutuallyExclusive"
     ) {
       component.variant = "mutuallyExclusive";
@@ -401,8 +404,9 @@ export function normalizeLiveEnvelope(
       errors.push("The generated data model must contain a draft object.");
     } else {
       for (const key of Object.keys(tree.fields)) {
-        if (!(key in draft)) {
+        if (!Object.hasOwn(draft, key)) {
           errors.push(`data.draft.${key} must be initialized.`);
+          continue;
         }
       }
       const specs = deriveFieldSpecs(components);

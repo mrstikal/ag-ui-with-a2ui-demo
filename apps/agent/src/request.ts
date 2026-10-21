@@ -398,7 +398,10 @@ export function createSurfaceState(args: {
     if (!spec) {
       continue;
     }
-    const normalized = normalizeValue(spec, draft[key]);
+    const normalized = normalizeValue(
+      spec,
+      Object.hasOwn(draft, key) ? draft[key] : undefined,
+    );
     values[key] = normalized.ok ? normalized.value : "";
   }
 
@@ -692,7 +695,7 @@ export function normalizeChangePlan(
           error: `Field key '${key}' is reserved by the host.`,
         };
       }
-      if (fields[key]) {
+      if (Object.hasOwn(fields, key)) {
         return { ok: false, error: `Field '${key}' already exists.` };
       }
       if (
@@ -800,7 +803,7 @@ export function normalizeChangePlan(
       };
     }
     for (const [key, value] of entries) {
-      const spec = fields[key];
+      const spec = Object.hasOwn(fields, key) ? fields[key] : undefined;
       if (!spec) {
         return { ok: false, error: `Field '${key}' does not exist.` };
       }
@@ -921,7 +924,7 @@ export function applyChangePlan(
   const changedKeys = Object.keys(plan.setValues);
   const defaultKeys = plan.addFields
     .map((spec) => spec.key)
-    .filter((key) => !(key in plan.setValues));
+    .filter((key) => !Object.hasOwn(plan.setValues, key));
   const values = { ...surface.values };
   for (const key of defaultKeys) {
     values[key] = "";
@@ -946,7 +949,10 @@ export function applyChangePlan(
   const dataUpdates: DataUpdate[] = [
     ...plan.addFields.map((spec) => ({
       path: `/draft/${spec.key}`,
-      value: dataValue(spec, values[spec.key] ?? ""),
+      value: dataValue(
+        spec,
+        Object.hasOwn(values, spec.key) ? (values[spec.key] ?? "") : "",
+      ),
     })),
     ...changedKeys
       .filter((key) => !plan.addFields.some((spec) => spec.key === key))

@@ -19,6 +19,7 @@ import {
   ACTION_REVIEW_REQUEST,
   ACTION_SUBMIT_DEMO_REQUEST,
   SUBMIT_BUTTON_ID,
+  redactActionContext,
 } from "@arb/shared";
 import { z } from "zod";
 import {
@@ -57,6 +58,7 @@ import {
 } from "./fixture.js";
 import { SYSTEM_INSTRUCTIONS } from "./instructions.js";
 import { createChatModel } from "./model.js";
+import { plannerSurfaceContext } from "./planner.js";
 import {
   RequestInputSchema,
   RequestOutputSchema,
@@ -137,7 +139,8 @@ async function planAction(
     name: action.name,
     surfaceId: action.surfaceId,
     sourceComponentId: action.sourceComponentId,
-    context: action.context,
+    context: redactActionContext(action.context),
+    contextRedacted: true,
   });
   const expectedSurfaceId = makeSurfaceId(config);
   if (
@@ -601,7 +604,8 @@ async function liveActionNode(
       name: action.name,
       surfaceId: action.surfaceId,
       sourceComponentId: action.sourceComponentId,
-      context: action.context,
+      context: redactActionContext(action.context),
+      contextRedacted: true,
     });
   }
   if (!action) {
@@ -1042,23 +1046,6 @@ function routeAfterUpdate(state: RequestStateType): string {
   const last = state.messages.at(-1);
   const toolCalls = last ? (last as AIMessage).tool_calls : undefined;
   return Array.isArray(toolCalls) && toolCalls.length > 0 ? "tools" : END;
-}
-
-function plannerSurfaceContext(surface: SurfaceState): string {
-  const fields = Object.values(surface.fields)
-    .map((field) => {
-      const options =
-        field.kind === "choice"
-          ? ` options=[${(field.optionLabels ?? [])
-              .map((option) => `${option.label}=${option.value}`)
-              .join(", ")}]`
-          : "";
-      return `- ${field.key}: ${field.kind} "${field.label}"${options}`;
-    })
-    .join("\n");
-  return `Current form (host-owned; use these keys for apply_request_changes):
-${fields}
-status=${surface.status} revision=${String(surface.revision)}. Preserve existing fields unless the user explicitly asks to change them.`;
 }
 
 function createLiveGraph() {

@@ -114,7 +114,7 @@ describe("inspector redaction", () => {
       name: "reviewRequest",
       surfaceId: "surface-1",
       sourceComponentId: "review",
-      context: { title: "Login fails", revision: 0 },
+      context: { title: { type: "string", length: 11 }, revision: 0 },
     });
     expect(description.payload).toEqual({
       count: 3,
@@ -122,6 +122,7 @@ describe("inspector redaction", () => {
     });
     expect(JSON.stringify(description.payload)).not.toContain("Login");
     expect(JSON.stringify(description.payload)).not.toContain("SECRET");
+    expect(JSON.stringify(description.action)).not.toContain("Login fails");
   });
 
   it("rejects action-shaped content without a log_a2ui_event tool call", () => {
@@ -198,7 +199,8 @@ describe("inspector redaction", () => {
           name: "reviewRequest",
           surfaceId: "surface-1",
           sourceComponentId: "review-button",
-          context: { title: "Login fails", revision: 2 },
+          context: { title: { type: "string", length: 11 }, revision: 2 },
+          contextRedacted: true,
         },
       }),
     );
@@ -207,7 +209,7 @@ describe("inspector redaction", () => {
       name: "reviewRequest",
       surfaceId: "surface-1",
       sourceComponentId: "review-button",
-      context: { title: "Login fails", revision: 2 },
+      context: { title: { type: "string", length: 11 }, revision: 2 },
     });
     expect(description.summary).toContain("forwarded action");
     expect(description.payload).toEqual({
@@ -216,6 +218,27 @@ describe("inspector redaction", () => {
       sourceComponentId: "review-button",
       contextKeys: ["title", "revision"],
     });
+    expect(JSON.stringify(description.action)).not.toContain("Login fails");
+  });
+
+  it("redacts an unmarked custom action context", () => {
+    const description = describeEvent(
+      asEvent({
+        type: "CUSTOM",
+        name: "a2ui_action_evidence",
+        value: {
+          name: "reviewRequest",
+          surfaceId: "surface-1",
+          context: { title: "Login fails", revision: 0 },
+        },
+      }),
+    );
+
+    expect(description.action?.context).toEqual({
+      title: { type: "string", length: 11 },
+      revision: 0,
+    });
+    expect(JSON.stringify(description.action)).not.toContain("Login fails");
   });
 
   it("captures forwarded action evidence without exposing raw tool content", () => {
@@ -233,7 +256,7 @@ describe("inspector redaction", () => {
       name: "reviewRequest",
       surfaceId: "surface-1",
       sourceComponentId: "review",
-      context: { title: "Login fails", revision: 0 },
+      context: { title: { type: "string", length: 11 }, revision: 0 },
     });
     expect(description.payload).toEqual({
       toolCallId: "call-1",
@@ -242,6 +265,7 @@ describe("inspector redaction", () => {
       sourceComponentId: "review",
     });
     expect(description.summary).toContain("forwarded action");
+    expect(JSON.stringify(description.action)).not.toContain("Login fails");
   });
 
   it("bounds JSON payloads", () => {

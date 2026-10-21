@@ -132,6 +132,7 @@ describe("Stage 3 live generation tool", () => {
       (component) => component.id === "field_title",
     ) as Record<string, unknown>;
     title.placeholder = "Type a title";
+    title.validationRegexp = "(a+)+$";
     const severity = components.find(
       (component) => component.id === "field_severity",
     ) as Record<string, unknown>;
@@ -154,6 +155,30 @@ describe("Stage 3 live generation tool", () => {
       (component) => component.id === "field_severity",
     ) as Record<string, unknown>;
     expect(repairedTitle).not.toHaveProperty("placeholder");
+    expect(repairedTitle).not.toHaveProperty("validationRegexp");
+    expect(repairedSeverity.variant).toBe("mutuallyExclusive");
+  });
+
+  it("fills an omitted ChoicePicker variant with mutuallyExclusive", () => {
+    const { components, data } = liveParts();
+    const severity = components.find(
+      (component) => component.id === "field_severity",
+    ) as Record<string, unknown>;
+    delete severity.variant;
+
+    const result = normalizeLiveEnvelope(
+      operationsEnvelope([
+        createSurfaceOperation("model-generated"),
+        updateComponentsOperation("model-generated", components),
+        updateDataModelOperation("model-generated", "/", data),
+      ]),
+      "surface-thread-1",
+    );
+
+    expect(result.valid).toBe(true);
+    const repairedSeverity = result.components.find(
+      (component) => component.id === "field_severity",
+    ) as Record<string, unknown>;
     expect(repairedSeverity.variant).toBe("mutuallyExclusive");
   });
 

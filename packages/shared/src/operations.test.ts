@@ -5,6 +5,7 @@ import {
   componentTypes,
   createSurfaceOperation,
   deleteSurfaceOperation,
+  deriveFieldSpecs,
   initializeDataModel,
   operationsEnvelope,
   updateComponentsOperation,
@@ -225,6 +226,80 @@ describe("strict A2UI fixture schemas", () => {
     );
   });
 
+  it("handles prototype-named component ids and field keys", () => {
+    const tree = components();
+    const root = tree.find((entry) => entry.id === "root") as {
+      children: string[];
+    };
+    root.children.push("constructor", "prototype_field");
+    tree.push({ id: "constructor", component: "Text", text: "Prototype" });
+    tree.push({
+      id: "prototype_field",
+      component: "TextField",
+      label: "Prototype field",
+      value: { path: "/draft/constructor" },
+    });
+    const review = tree.find((entry) => entry.id === "review") as {
+      action: { event: { context: Record<string, unknown> } };
+    };
+    review.action.event.context["constructor"] = {
+      path: "/draft/constructor",
+    };
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(true);
+    expect(result.fields.constructor).toEqual({
+      kind: "text",
+      required: false,
+    });
+    expect(deriveFieldSpecs(tree).constructor).toMatchObject({
+      key: "constructor",
+      kind: "text",
+    });
+
+    const data = {
+      draft: {
+        title: "",
+        details: "",
+        severity: [],
+        constructor: "Prototype value",
+      },
+      meta: { revision: 0, status: "editing" },
+      errors: { summary: "", fields: {} },
+    };
+    expect(validateDataModel(data, result.fields)).toEqual([]);
+  });
+
+  it("rejects literal or missing input values that cannot be submitted", () => {
+    const literalText = components();
+    const literalTitle = literalText.find((entry) => entry.id === "title") as {
+      value: unknown;
+    };
+    literalTitle.value = "Literal title";
+    expect(
+      validateComponentTree(literalText).errors.map((error) => error.code),
+    ).toContain("invalid_binding");
+
+    const missingText = components();
+    const missingTitle = missingText.find((entry) => entry.id === "title") as {
+      value?: unknown;
+    };
+    delete missingTitle.value;
+    expect(
+      validateComponentTree(missingText).errors.map((error) => error.code),
+    ).toContain("invalid_binding");
+
+    const literalChoice = components();
+    const literalSeverity = literalChoice.find(
+      (entry) => entry.id === "severity",
+    ) as { value: unknown };
+    literalSeverity.value = ["low"];
+    expect(
+      validateComponentTree(literalChoice).errors.map((error) => error.code),
+    ).toContain("invalid_binding");
+  });
+
   it("validates a full create/update/data envelope", () => {
     const result = validateOperationEnvelope(envelope(), {
       expectedSurfaceId: "surface-1",
@@ -276,6 +351,131 @@ describe("strict A2UI fixture schemas", () => {
     expect(CATALOG_ID).toBe("arb://catalog/request-builder.v1");
   });
 
+
+  it("validates catalog property types instead of only property names", () => {
+    const invalid = components();
+    (invalid[0] as { weight: unknown }).weight = "wide";
+
+    const invalidResult = validateComponentTree(invalid);
+    expect(invalidResult.valid).toBe(false);
+    expect(invalidResult.errors.map((error) => error.code)).toContain(
+      "invalid_prop",
+    );
+
+    const valid = components();
+    (valid[0] as { weight: unknown }).weight = 2;
+    expect(validateComponentTree(valid).valid).toBe(true);
+  });
+
+  it("validates Button checks instead of accepting any value", () => {
+    const invalid = components();
+    const invalidReview = invalid.find((entry) => entry.id === "review") as {
+      checks: unknown;
+    };
+    invalidReview.checks = "not-an-array";
+    expect(
+      validateComponentTree(invalid).errors.map((error) => error.code),
+    ).toContain("invalid_checks");
+
+    const incomplete = components();
+    const incompleteReview = incomplete.find(
+      (entry) => entry.id === "review",
+    ) as { checks: unknown };
+    incompleteReview.checks = [{ condition: true }];
+    expect(
+      validateComponentTree(incomplete).errors.map((error) => error.code),
+    ).toContain("invalid_checks");
+
+    const valid = components();
+    const validReview = valid.find((entry) => entry.id === "review") as {
+      checks: unknown;
+    };
+    validReview.checks = [{ condition: true, message: "Confirm the request." }];
+    expect(validateComponentTree(valid).valid).toBe(true);
+  });
+
+  it("requires an explicit single-select ChoicePicker variant", () => {
+    const tree = components();
+    const severity = tree.find((entry) => entry.id === "severity") as {
+      variant?: unknown;
+    };
+    delete severity.variant;
+
+    expect(
+      validateComponentTree(tree).errors.map((error) => error.code),
+    ).toContain("invalid_variant");
+  });
+
+  it("rejects model-generated function calls in accessibility attributes", () => {
+    const tree = components();
+    const heading = tree.find((entry) => entry.id === "heading") as {
+      accessibility: unknown;
+    };
+    heading.accessibility = {
+      label: { call: "openUrl", args: { url: "https://example.test" } },
+      description: { call: "regex", args: { value: "x", pattern: "(a+)+$" } },
+    };
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.filter((error) => error.code === "unsafe_function"),
+    ).toHaveLength(2);
+  });
+
+  it("accepts literal and host-path accessibility attributes", () => {
+    const tree = components();
+    const heading = tree.find((entry) => entry.id === "heading") as {
+      accessibility: unknown;
+    };
+    heading.accessibility = {
+      label: "Bug report heading",
+      description: { path: "/draft/title" },
+    };
+
+    expect(validateComponentTree(tree).valid).toBe(true);
+  });
+
+  it("rejects unknown or off-catalog accessibility bindings", () => {
+    const tree = components();
+    const heading = tree.find((entry) => entry.id === "heading") as {
+      accessibility: unknown;
+    };
+    heading.accessibility = {
+      label: { path: "/meta/revision" },
+      tooltip: "not in the catalog",
+    };
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    const codes = result.errors.map((error) => error.code);
+    expect(codes).toContain("invalid_binding");
+    expect(codes).toContain("unknown_prop");
+  });
+
+  it("computes depth in linear time for converging component graphs", () => {
+    const tree: Array<Record<string, unknown>> = [
+      { id: "root", component: "Column", children: ["a1", "b1"] },
+    ];
+    const levels = 39;
+    for (let level = 1; level <= levels; level += 1) {
+      const children =
+        level === levels
+          ? ["leaf"]
+          : [`a${String(level + 1)}`, `b${String(level + 1)}`];
+      tree.push({ id: `a${String(level)}`, component: "Column", children });
+      tree.push({ id: `b${String(level)}`, component: "Column", children });
+    }
+    tree.push({ id: "leaf", component: "Text", text: "leaf" });
+
+    const result = validateComponentTree(tree);
+
+    expect(tree).toHaveLength(80);
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toContain("too_deep");
+  });
 
   it("rejects unsafe markup, duplicate IDs, cycles, and unreachable nodes", () => {
     const unsafe = components();

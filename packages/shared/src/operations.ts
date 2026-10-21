@@ -165,6 +165,88 @@ function checkLiteral(
   return value;
 }
 
+const ACCESSIBILITY_KEYS = new Set(["label", "description"]);
+const ACCESSIBILITY_PATH =
+  /^\/(?:draft\/[a-z][a-z0-9_]{0,31}|errors\/summary|meta\/status)$/;
+
+function validateAccessibilityText(
+  errors: SurfaceValidationError[],
+  value: unknown,
+  path: string,
+): void {
+  if (typeof value === "string") {
+    checkLiteral(errors, value, path, LIMITS.maxLabelLength);
+    return;
+  }
+  if (isRecord(value) && "call" in value) {
+    addError(
+      errors,
+      "unsafe_function",
+      path,
+      "Function-call values are not allowed in accessibility attributes",
+    );
+    return;
+  }
+  const bound = dynamicPath(value);
+  if (bound !== null) {
+    if (!ACCESSIBILITY_PATH.test(bound)) {
+      addError(
+        errors,
+        "invalid_binding",
+        path,
+        "Accessibility attributes may bind only /draft/<fieldKey>, /errors/summary, or /meta/status",
+      );
+    }
+    return;
+  }
+  addError(
+    errors,
+    "invalid_prop",
+    path,
+    "Expected a literal string or a {path} binding",
+  );
+}
+
+function validateAccessibility(
+  errors: SurfaceValidationError[],
+  component: Record<string, unknown>,
+  path: string,
+): void {
+  const accessibility = component.accessibility;
+  if (accessibility === undefined) {
+    return;
+  }
+  if (!isRecord(accessibility)) {
+    addError(
+      errors,
+      "invalid_prop",
+      path,
+      "accessibility must be an object",
+    );
+    return;
+  }
+  for (const key of Object.keys(accessibility)) {
+    if (!ACCESSIBILITY_KEYS.has(key)) {
+      addError(
+        errors,
+        "unknown_prop",
+        `${path}.${key}`,
+        `Property '${key}' is not allowed in accessibility`,
+      );
+    }
+  }
+  if ("label" in accessibility) {
+    validateAccessibilityText(errors, accessibility.label, `${path}.label`);
+  }
+  if ("description" in accessibility) {
+    validateAccessibilityText(
+      errors,
+      accessibility.description,
+      `${path}.description`,
+    );
+  }
+}
+
 function checkEnum(
   errors: SurfaceValidationError[],
   type: string,
@@ -279,7 +361,14 @@ function validateTextField(
   }
 
   const valuePath = dynamicPath(component.value);
-  if (valuePath !== null) {
+  if (valuePath === null) {
+    addError(
+      errors,
+      "invalid_binding",
+      `${path}.value`,
+      "TextField value must bind /draft/<fieldKey> so edits can be submitted",
+    );
+  } else {
     const match = DRAFT_PATH.exec(valuePath);
     if (!match?.[1] || !FIELD_KEY.test(match[1])) {
       addError(
@@ -298,8 +387,6 @@ function validateTextField(
     } else {
       fieldBindingKinds.set(match[1], "text");
     }
-  } else if (component.value !== undefined) {
-    checkLiteral(errors, component.value, `${path}.value`, LIMITS.maxTextLength);
   }
 
   checkEnum(errors, "TextField", component, "variant", `${path}.variant`);
@@ -402,17 +489,24 @@ function validateChoicePicker(
   }
 
   const variant = component.variant;
-  if (variant !== undefined && variant !== "mutuallyExclusive") {
+  if (variant !== "mutuallyExclusive") {
     addError(
       errors,
       "invalid_variant",
       `${path}.variant`,
-      "The approved catalog is single-select: use mutuallyExclusive",
+      "The approved catalog is single-select: set variant to mutuallyExclusive",
     );
   }
 
   const valuePath = dynamicPath(component.value);
-  if (valuePath !== null) {
+  if (valuePath === null) {
+    addError(
+      errors,
+      "invalid_binding",
+      `${path}.value`,
+      "ChoicePicker value must bind /draft/<fieldKey> so selections can be submitted",
+    );
+  } else {
     const match = DRAFT_PATH.exec(valuePath);
     if (!match?.[1] || !FIELD_KEY.test(match[1])) {
       addError(
@@ -430,26 +524,6 @@ function validateChoicePicker(
       );
     } else {
       fieldBindingKinds.set(match[1], "choice");
-    }
-  } else if (component.value !== undefined) {
-    if (!Array.isArray(component.value) || component.value.length > 1) {
-      addError(
-        errors,
-        "invalid_binding",
-        `${path}.value`,
-        "ChoicePicker value must be at most one string in a literal array",
-      );
-    } else if (
-      component.value.some(
-        (entry) => typeof entry !== "string" || entry.length > LIMITS.maxLabelLength,
-      )
-    ) {
-      addError(
-        errors,
-        "invalid_binding",
-        `${path}.value`,
-        "ChoicePicker literal values must be strings",
-      );
     }
   }
 
@@ -474,6 +548,7 @@ function validateButton(
     addError(errors, "invalid_child", `${path}.child`, "Button child is required");
   }
   checkEnum(errors, "Button", component, "variant", `${path}.variant`);
+  validateChecks(errors, component.checks, `${path}.checks`);
 }
 
 function validateActionEvent(
@@ -636,7 +711,10 @@ function validateOneComponent(
     return null;
   }
 
-  const expectedHostTypes = typeof id === "string" ? HOST_ID_TYPES[id] : undefined;
+  const expectedHostTypes =
+    typeof id === "string" && Object.hasOwn(HOST_ID_TYPES, id)
+      ? HOST_ID_TYPES[id]
+      : undefined;
   if (expectedHostTypes && !expectedHostTypes.includes(type)) {
     addError(
       errors,
@@ -677,6 +755,19 @@ function validateOneComponent(
         `${type} is missing required prop '${required}'`,
       );
     }
+  }
+
+  validateAccessibility(errors, component, `${path}.accessibility`);
+  if (
+    component.weight !== undefined &&
+    (typeof component.weight !== "number" || !Number.isFinite(component.weight))
+  ) {
+    addError(
+      errors,
+      "invalid_prop",
+      `${path}.weight`,
+      "weight must be a finite number",
+    );
   }
 
   switch (type) {
@@ -831,22 +922,38 @@ function reachableFromRoot(
 
 function maxDepth(
   components: Map<string, Record<string, unknown>>,
-  id: string,
-  seen: Set<string>,
 ): number {
-  if (seen.has(id)) {
-    return 0;
+  const memo = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  function visit(id: string): number {
+    if (visiting.has(id)) {
+      return 0;
+    }
+    const cached = memo.get(id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const component = components.get(id);
+    if (!component) {
+      return 0;
+    }
+    visiting.add(id);
+    const children = childReferences(component);
+    let depth = 1;
+    if (children.length > 0) {
+      let deepestChild = 0;
+      for (const child of children) {
+        deepestChild = Math.max(deepestChild, visit(child));
+      }
+      depth += deepestChild;
+    }
+    visiting.delete(id);
+    memo.set(id, depth);
+    return depth;
   }
-  const component = components.get(id);
-  if (!component) {
-    return 0;
-  }
-  const nextSeen = new Set(seen).add(id);
-  const children = childReferences(component);
-  if (children.length === 0) {
-    return 1;
-  }
-  return 1 + Math.max(...children.map((child) => maxDepth(components, child, nextSeen)));
+
+  return visit("root");
 }
 
 export function validateComponentTree(
@@ -955,7 +1062,7 @@ export function validateComponentTree(
     }
   }
   if (byId.has("root")) {
-    const depth = maxDepth(byId, "root", new Set());
+    const depth = maxDepth(byId);
     if (depth > LIMITS.maxDepth) {
       addError(
         errors,
@@ -966,7 +1073,7 @@ export function validateComponentTree(
     }
   }
 
-  const fields: Record<string, FieldRule> = {};
+  const fields = Object.create(null) as Record<string, FieldRule>;
   const keys = [...fieldBindingKinds.keys()];
   if (keys.length > LIMITS.maxFields) {
     addError(
@@ -991,7 +1098,7 @@ export function validateComponentTree(
 
   for (const path of REQUIRED_FIELD_PATHS) {
     const key = path.replace(/^\/draft\//, "");
-    if (!fields[key]) {
+    if (!Object.hasOwn(fields, key)) {
       addError(
         errors,
         "missing_required_field",
@@ -1019,7 +1126,7 @@ export function deriveFieldRules(
 export function deriveFieldSpecs(
   components: unknown,
 ): Record<string, FieldSpec> {
-  const specs: Record<string, FieldSpec> = {};
+  const specs = Object.create(null) as Record<string, FieldSpec>;
   if (!Array.isArray(components)) {
     return specs;
   }
@@ -1038,7 +1145,7 @@ export function deriveFieldSpecs(
     }
     const match = DRAFT_PATH.exec(valuePath);
     const key = match?.[1];
-    if (!key || !FIELD_KEY.test(key) || specs[key]) {
+    if (!key || !FIELD_KEY.test(key) || Object.hasOwn(specs, key)) {
       continue;
     }
     const label =
@@ -1226,7 +1333,7 @@ export function validateDataModel(
   let rules = fields;
   const draft = value.draft;
   if (isRecord(draft) && Object.keys(rules).length === 0) {
-    const inferred: Record<string, FieldRule> = {};
+    const inferred = Object.create(null) as Record<string, FieldRule>;
     for (const [key, entry] of Object.entries(draft)) {
       if (!FIELD_KEY.test(key)) {
         addError(
@@ -1256,7 +1363,7 @@ export function validateDataModel(
     addError(errors, "invalid_data_model", "data.draft", "draft must be an object");
   } else {
     for (const [key, rule] of Object.entries(rules)) {
-      if (!(key in draft)) {
+      if (!Object.hasOwn(draft, key)) {
         addError(
           errors,
           "missing_data_value",
@@ -1297,7 +1404,7 @@ export function validateDataModel(
       }
     }
     for (const key of Object.keys(draft)) {
-      if (!rules[key]) {
+      if (!Object.hasOwn(rules, key)) {
         addError(
           errors,
           "unexpected_data_value",

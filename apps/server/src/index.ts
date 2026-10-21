@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { LangGraphAgent } from "@ag-ui/langgraph";
 import {
   CATALOG_ID,
@@ -13,6 +14,7 @@ import { stableA2UIActivityMiddleware } from "./stableActivity.js";
 const port = Number(process.env.PORT ?? 4000);
 const deploymentUrl = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:2024";
 const graphId = process.env.LANGGRAPH_GRAPH_ID ?? "requestBuilder";
+const instanceId = randomUUID();
 const mode = process.env.AGENT_MODE?.trim().toLowerCase();
 if (mode !== "fixture" && mode !== "live") {
   throw new Error(
@@ -50,6 +52,7 @@ app.get("/api/health", (_request, response) => {
   response.json({
     ok: true,
     mode,
+    instanceId,
     graphId,
     catalogId: CATALOG_ID,
     a2ui: {

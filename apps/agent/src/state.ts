@@ -1,6 +1,7 @@
 import type { BaseMessage } from "@langchain/core/messages";
 import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 import { z } from "zod";
+import { trimHistory } from "./history.js";
 import type { RequestCategory, SurfaceState } from "./request.js";
 
 export type AgentMode = "fixture" | "live";
@@ -9,7 +10,7 @@ export type { RequestCategory };
 
 export const RequestState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
-    reducer: messagesStateReducer,
+    reducer: (previous, next) => trimHistory(messagesStateReducer(previous, next)),
     default: () => [],
   }),
   status: Annotation<RequestStatus>({
