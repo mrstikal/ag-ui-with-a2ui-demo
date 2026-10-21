@@ -287,6 +287,10 @@ export function Inspector({
           <p className="text-[11px] text-slate-500">
             Same real run. No extra model request.
           </p>
+          <p className="mt-1 text-[11px] leading-4 text-slate-500">
+            State = AG-UI run snapshot (status/revision). A2UI = separate
+            surface operations (components/data).
+          </p>
         </div>
         <button
           type="button"

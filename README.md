@@ -179,6 +179,8 @@ logic where applicable, and the same React renderer.
 
 ## Evidence and limits
 
+- `docs/acceptance.md` — Section 7 A01-A12 matrix with deterministic, browser,
+  and live evidence.
 - `docs/protocol-trace.md` — real, sanitized AG-UI event order and A2UI
   operation summaries from a live run, including the form-edit/action/update
   cycle.

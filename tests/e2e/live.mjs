@@ -493,10 +493,10 @@ function inspectRun(events, threadId, label) {
 
   const chunks = events.filter((event) => event.type === "TEXT_MESSAGE_CONTENT");
   assert(
-    chunks.length >= 1 &&
+    chunks.length >= 2 &&
       types.includes("TEXT_MESSAGE_START") &&
       types.includes("TEXT_MESSAGE_END"),
-    `${label} live model must stream the explanation through AG-UI text events`,
+    `${label} live model must stream multiple explanation chunks through AG-UI text events`,
   );
 
   const toolStarts = events.filter(
@@ -512,6 +512,12 @@ function inspectRun(events, threadId, label) {
       .slice(0, firstGenerate)
       .some((event) => event.toolCallName === "render_a2ui"),
     `${label} render_a2ui must not be exposed to the planner before generate_a2ui`,
+  );
+  assert(
+    toolStarts
+      .slice(firstGenerate + 1)
+      .some((event) => event.toolCallName === "render_a2ui"),
+    `${label} generate_a2ui must invoke the internal render_a2ui tool`,
   );
 
   const activity = finalActivity(events);
@@ -591,6 +597,7 @@ function inspectRun(events, threadId, label) {
     .filter((event) => event.type === "STATE_SNAPSHOT")
     .at(-1)?.snapshot;
   assert(state?.mode === "live", `${label} state must report live mode`);
+  assert(state?.status === "editing", `${label} state must start editing`);
   assert(state?.surfaceId === surfaceId, `${label} state must expose the surface ID`);
   assert(state?.revision === 0, `${label} state revision must start at 0`);
   assertPublicState(state, label);
@@ -1091,6 +1098,7 @@ async function main() {
   );
 
   const traces = [];
+  const threadResults = new Map();
   for (const testCase of CASES) {
     const threadId = randomUUID();
     const events = await runAgent({
@@ -1110,6 +1118,7 @@ async function main() {
       forwardedProps: { a2uiCatalogAvailable: true },
     });
     const result = inspectRun(events, threadId, testCase.label);
+    threadResults.set(testCase.label, { threadId, result });
     if (testCase.label === "bug") {
       recordProtocol("Initial generation - bug example", events);
     }
@@ -1134,6 +1143,38 @@ async function main() {
       );
     }
   }
+
+  const bugThread = threadResults.get("bug");
+  const featureThread = threadResults.get("feature");
+  assert(bugThread && featureThread, "live isolation requires bug and feature threads");
+  const [bugThreadState, featureThreadState] = await Promise.all(
+    [bugThread.threadId, featureThread.threadId].map((threadId) =>
+      fetch(`${AGENT_URL}/threads/${threadId}/state`).then((response) =>
+        response.json(),
+      ),
+    ),
+  );
+  assert(
+    bugThreadState.values?.status === "submitted-demo" &&
+      bugThreadState.values?.revision === 6,
+    "the bug thread must retain its own submitted-demo state",
+  );
+  assert(
+    featureThreadState.values?.status === "editing" &&
+      featureThreadState.values?.revision === 0,
+    "the feature thread must stay isolated at editing/revision 0",
+  );
+  assert(
+    featureThreadState.values?.surfaceId ===
+      featureThread.result.surface.surfaceId,
+    "the feature thread must keep its own surface ID",
+  );
+  const featureStateJson = JSON.stringify(featureThreadState.values ?? {});
+  assert(
+    !featureStateJson.includes("Safari sign-out") &&
+      !featureStateJson.includes("Safari users are signed out"),
+    "the bug thread's draft values must not leak into the feature thread",
+  );
 
   const surfaceTraces = traces.filter((trace) => trace.activity);
   const examples = surfaceTraces.filter((trace) => trace.label !== "custom");

@@ -110,6 +110,19 @@ function Workspace({
   }, [agent.isRunning]);
 
   useEffect(() => {
+    const subscription = agent.subscribe({
+      onRunFailed: ({ error }) => {
+        setRunError(
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent run failed",
+        );
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, [agent]);
+
+  useEffect(() => {
     onRuntimeReconnectRef.current = onRuntimeReconnect;
   }, [onRuntimeReconnect]);
 

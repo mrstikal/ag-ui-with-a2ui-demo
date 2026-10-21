@@ -92,3 +92,50 @@ test("tab order moves from New request to the example buttons", async ({
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Login bug" })).toBeFocused();
 });
+
+test("shows a transport failure and recovers with New request", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.locator("header").getByText("FIXTURE", { exact: true }),
+  ).toBeVisible();
+
+  await page.route("**/api/copilotkit**", async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === "POST" && !url.includes("/info")) {
+      await route.fulfill({
+        status: 502,
+        contentType: "text/plain",
+        body: "bridge unavailable",
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Login bug" }).click();
+  await expect(page.getByText("Run or transport error.")).toBeVisible();
+  await expect(
+    page.locator("header").getByText("ERROR", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator("header").getByText("FIXTURE", { exact: true }),
+  ).toBeVisible();
+
+  await page
+    .locator("header")
+    .getByRole("button", { name: "New request" })
+    .click();
+  await expect(page.getByText("Try an example")).toBeVisible();
+  await expect(page.getByText("Run or transport error.")).toHaveCount(0);
+  await expect(
+    page.locator("header").getByText("FIXTURE", { exact: true }),
+  ).toBeVisible();
+
+  await page.unroute("**/api/copilotkit**");
+  await page.getByRole("button", { name: "Login bug" }).click();
+  await expect(
+    page.getByRole("button", { name: "Review request" }),
+  ).toBeVisible();
+});

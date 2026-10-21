@@ -306,23 +306,25 @@ async function startFixture(prompt) {
   };
 }
 
-async function runAction(fixture, action, context) {
+async function runAction(fixture, action, context, options = {}) {
   const events = await runAgent({
     ...baseBody(fixture.threadId, {
       id: randomUUID(),
       role: "user",
       content: "",
     }),
-    state: fixture.stateSnapshot ?? {},
-    messages: fixture.messagesSnapshot ?? [],
+    state: options.state ?? fixture.stateSnapshot ?? {},
+    messages: options.messages ?? fixture.messagesSnapshot ?? [],
     runId: randomUUID(),
     forwardedProps: {
       a2uiCatalogAvailable: true,
       a2uiAction: {
         userAction: {
           name: action,
-          surfaceId: fixture.surfaceId,
-          sourceComponentId: action === REVIEW_ACTION ? "review" : "discard",
+          surfaceId: options.surfaceId ?? fixture.surfaceId,
+          sourceComponentId:
+            options.sourceComponentId ??
+            (action === REVIEW_ACTION ? "review" : "discard"),
           context,
           timestamp: new Date().toISOString(),
         },
@@ -338,6 +340,26 @@ function assertNoRunError(events, label) {
     !events.some((event) => event.type === "RUN_ERROR"),
     `${label} run must not emit RUN_ERROR`,
   );
+}
+
+function hasSurfaceActivity(events) {
+  return events.some(
+    (event) =>
+      event.type === "ACTIVITY_SNAPSHOT" &&
+      event.activityType === "a2ui-surface",
+  );
+}
+
+function latestState(events) {
+  return events
+    .filter((event) => event.type === "STATE_SNAPSHOT")
+    .at(-1)?.snapshot;
+}
+
+function latestMessages(events) {
+  return events
+    .filter((event) => event.type === "MESSAGES_SNAPSHOT")
+    .at(-1)?.messages;
 }
 
 async function main() {
@@ -611,8 +633,88 @@ async function main() {
     "stale action text must state the rejection",
   );
 
+  const featureThreadState = await fetch(
+    `${AGENT_URL}/threads/${feature.threadId}/state`,
+  ).then((response) => response.json());
+  assert(
+    featureThreadState.values?.status === "editing",
+    "the second thread must stay editing after the first thread's review",
+  );
+  assert(
+    featureThreadState.values?.revision === 0,
+    "the second thread must keep revision 0 after the first thread's review",
+  );
+  assert(
+    featureThreadState.values?.surfaceId === feature.surfaceId,
+    "the second thread must keep its own surface ID",
+  );
+  assert(
+    !JSON.stringify(featureThreadState.values ?? {}).includes(bugValues.title),
+    "the first thread's title must not leak into the second thread",
+  );
+  assert(
+    !JSON.stringify(featureThreadState.values ?? {}).includes(bugValues.details),
+    "the first thread's details must not leak into the second thread",
+  );
+
+  const featureLatestState = latestState(invalid);
+  const featureLatestMessages = latestMessages(invalid);
+  assert(
+    featureLatestState,
+    "invalid review must emit a state snapshot for the cross-thread run",
+  );
+  assert(
+    Array.isArray(featureLatestMessages),
+    "invalid review must emit a messages snapshot for the cross-thread run",
+  );
+  const crossThread = await runAction(
+    feature,
+    REVIEW_ACTION,
+    buildResolvedContext(feature.review.context, invalidValues, 0),
+    {
+      surfaceId: bug.surfaceId,
+      state: featureLatestState,
+      messages: featureLatestMessages,
+    },
+  );
+  assertNoRunError(crossThread, "cross-thread review");
+  assert(
+    !hasSurfaceActivity(crossThread),
+    "cross-thread action must not paint or update a surface",
+  );
+  assert(
+    textOf(crossThread).includes("unknown surface"),
+    "cross-thread action must be rejected as an unknown surface",
+  );
+  const afterCrossThread = latestState(crossThread);
+  assert(
+    afterCrossThread?.status === "editing" &&
+      afterCrossThread?.revision === 0,
+    "cross-thread action must not mutate the second thread",
+  );
+
+  const unknownAction = await runAction(feature, "deleteEverything", {}, {
+    state: afterCrossThread,
+    messages: latestMessages(crossThread) ?? featureLatestMessages,
+  });
+  assertNoRunError(unknownAction, "unknown action");
+  assert(
+    !hasSurfaceActivity(unknownAction),
+    "unknown action must not paint or update a surface",
+  );
+  assert(
+    textOf(unknownAction).includes("Rejected unknown action"),
+    "unknown action must be rejected with a clear reason",
+  );
+  const afterUnknownAction = latestState(unknownAction);
+  assert(
+    afterUnknownAction?.status === "editing" &&
+      afterUnknownAction?.revision === 0,
+    "unknown action must not mutate the draft",
+  );
+
   console.info(
-    "[e2e] Stage 2 fixture PASS: four fixed A2UI surfaces, same-surface review update, in-surface validation, deleteSurface, and stale-action rejection",
+    "[e2e] Stage 2 fixture PASS: four fixed A2UI surfaces, same-surface review update, in-surface validation, deleteSurface, stale-action rejection, two-thread isolation, cross-thread rejection, and unknown-action rejection",
   );
   console.info(
     `[e2e] surfaces bug=${bug.surfaceId} feature=${feature.surfaceId} meeting=${meeting.surfaceId} custom=${custom.surfaceId}`,
