@@ -18,6 +18,7 @@ import {
   ACTION_EVIDENCE_EVENT,
   ACTION_REVIEW_REQUEST,
   ACTION_SUBMIT_DEMO_REQUEST,
+  LIMITS,
   SUBMIT_BUTTON_ID,
   redactActionContext,
 } from "@arb/shared";
@@ -67,17 +68,17 @@ import {
   type RequestStateType,
 } from "./state.js";
 
-const MANUALLY_EMIT_MESSAGE = "manually_emit_message";
-const MAX_PROMPT_LENGTH = 1_000;
+const TEXT_MESSAGE_EVENT = "manually_emit_message";
+const MAX_PROMPT_LENGTH = LIMITS.maxPromptLength;
 
 async function emitTextMessage(text: string): Promise<void> {
-  await dispatchCustomEvent(MANUALLY_EMIT_MESSAGE, {
+  await dispatchCustomEvent(TEXT_MESSAGE_EVENT, {
     message_id: `fixture-message-${randomUUID()}`,
     message: text,
   });
 }
 
-function fixtureText(text: string): AIMessage {
+function assistantText(text: string): AIMessage {
   return new AIMessage({
     content: text,
     response_metadata: { finish_reason: "stop" },
@@ -97,7 +98,7 @@ function rejection(
   extraMessages: BaseMessage[] = [],
 ) {
   return {
-    messages: [...extraMessages, fixtureText(message)],
+    messages: [...extraMessages, assistantText(message)],
     summary,
     mode: "fixture" as const,
   };
@@ -301,7 +302,7 @@ export async function fixturePlanNode(
       "A fixture surface already exists on this thread. Edit the bound fields and click Review request, or discard the demo form.";
     await emitTextMessage(text);
     return {
-      messages: [fixtureText(text)],
+      messages: [assistantText(text)],
       summary: "Fixture surface already present",
       mode: "fixture" as const,
     };
@@ -348,19 +349,33 @@ export async function fixturePlanNode(
   };
 }
 
+function isErrorPayload(content: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return (
+      Boolean(parsed) &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { error?: unknown }).error === "string"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function fixtureRespondNode(state: RequestStateType) {
-  const lastTool = [...state.messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.type === "tool" && message.name === PUBLISH_TOOL_NAME,
-    ) as ToolMessage | undefined;
+  let lastTool: ToolMessage | undefined;
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message?.type === "tool" && message.name === PUBLISH_TOOL_NAME) {
+      lastTool = message as ToolMessage;
+      break;
+    }
+  }
   const content = messageText(lastTool);
   const failed =
     lastTool !== undefined &&
-    (lastTool.status === "error" ||
-      content.startsWith('{"error"') ||
-      content.startsWith("Error"));
+    (lastTool.status === "error" || isErrorPayload(content));
 
   let text: string;
   let summary: string;
@@ -388,7 +403,7 @@ export async function fixtureRespondNode(state: RequestStateType) {
   }
   await emitTextMessage(text);
   return {
-    messages: [fixtureText(text)],
+    messages: [assistantText(text)],
     summary,
   };
 }
@@ -482,7 +497,7 @@ async function liveReject(
 ): Promise<Record<string, unknown>> {
   await emitTextMessage(text);
   return {
-    messages: [...extraMessages, fixtureText(text)],
+    messages: [...extraMessages, assistantText(text)],
     status: state.surface?.status ?? state.status,
     revision: state.surface?.revision ?? state.revision,
     surfaceId: state.surface?.surfaceId ?? state.surfaceId,
@@ -699,7 +714,7 @@ async function liveActionNode(
   if (!result.painted) {
     await emitTextMessage(result.text);
     return {
-      messages: [...compactPair, fixtureText(result.text)],
+      messages: [...compactPair, assistantText(result.text)],
       status: surface.status,
       revision: surface.revision,
       surfaceId: surface.surfaceId,
@@ -834,7 +849,7 @@ async function liveUpdateNode(
     return {
       messages: [
         compactApply({ ok: false, error: result.summary }),
-        fixtureText(result.text),
+        assistantText(result.text),
       ],
       status: surface.status,
       revision: surface.revision,
@@ -874,9 +889,6 @@ async function liveObserveNode(
   const generateTool = lastToolMessage(state, "generate_a2ui");
   if (generateTool) {
     const outcome = parseLiveToolResult(messageText(generateTool));
-    if (outcome.kind === "none") {
-      return {};
-    }
     if (outcome.kind === "failure") {
       const details =
         outcome.errors.length > 0
@@ -892,7 +904,7 @@ async function liveObserveNode(
             generateTool,
             JSON.stringify({ ok: false, error: outcome.message }),
           ),
-          fixtureText(text),
+          assistantText(text),
         ],
         status: state.surface?.status ?? state.status,
         revision: state.surface?.revision ?? state.revision,
@@ -992,7 +1004,7 @@ async function liveObserveNode(
             ok: false,
             error: "final publish validation failed",
           }),
-          fixtureText(
+          assistantText(
             "The host could not confirm the published A2UI update. The server state may be ahead of the rendered surface; use New request to recover.",
           ),
         ],
@@ -1081,19 +1093,12 @@ function createLiveGraph() {
   async function agentNode(state: RequestStateType) {
     const lastMessage = state.messages.at(-1);
     if (lastMessage?.type === "human" && messageText(lastMessage).length > MAX_PROMPT_LENGTH) {
-      await emitTextMessage(
-        `The request is longer than ${String(
-          MAX_PROMPT_LENGTH,
-        )} characters. Shorten it and try again.`,
-      );
+      const text = `The request is longer than ${String(
+        MAX_PROMPT_LENGTH,
+      )} characters. Shorten it and try again.`;
+      await emitTextMessage(text);
       return {
-        messages: [
-          fixtureText(
-            `The request is longer than ${String(
-              MAX_PROMPT_LENGTH,
-            )} characters. Shorten it and try again.`,
-          ),
-        ],
+        messages: [assistantText(text)],
         summary: "Live prompt rejected: too long",
         mode: "live" as const,
       };

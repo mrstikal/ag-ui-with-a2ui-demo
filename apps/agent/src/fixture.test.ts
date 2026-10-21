@@ -6,6 +6,7 @@ import {
 } from "@arb/shared";
 import {
   buildFixtureSurface,
+  fixtureForCategory,
   fixtureForKind,
   planDiscardAction,
   planReviewAction,
@@ -76,6 +77,12 @@ describe("Stage 2 fixture pipeline", () => {
     expect(selectFixtureKind("Please help me with a custom request.")).toBe(
       "other",
     );
+  });
+
+  it("falls back to the generic fixture for prototype-named categories", () => {
+    expect(fixtureForCategory("constructor").kind).toBe("other");
+    expect(fixtureForCategory("toString").kind).toBe("other");
+    expect(fixtureForCategory("bug").kind).toBe("bug");
   });
 
   it("binds every editable field into the review action context", () => {

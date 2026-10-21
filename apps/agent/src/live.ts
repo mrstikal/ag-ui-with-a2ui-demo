@@ -54,8 +54,7 @@ export type LiveToolOutcome =
       components: Array<Record<string, unknown>>;
       data: Record<string, unknown> | null;
     }
-  | { kind: "failure"; message: string; errors: string[] }
-  | { kind: "none" };
+  | { kind: "failure"; message: string; errors: string[] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -186,7 +185,9 @@ function normalizeActionContexts(
         return;
       }
       if (typeof entry.key === "string" && "value" in entry) {
-        normalized[entry.key] = entry.value;
+        errors.push(
+          `Action context[${String(index)}] must use a {path} binding; literal values are not allowed.`,
+        );
         return;
       }
       errors.push(`Action context[${String(index)}] must be a {path} object.`);
@@ -245,17 +246,19 @@ function attachHostControls(
   components: Array<Record<string, unknown>>,
   errors: string[],
 ): void {
+  let hostIdCollision = false;
   for (const component of components) {
     if (
       typeof component.id === "string" &&
       RESERVED_HOST_CONTROL_IDS.has(component.id)
     ) {
+      hostIdCollision = true;
       errors.push(
         `Model output may not use the host-reserved component id '${component.id}'.`,
       );
     }
   }
-  if (errors.length > 0) {
+  if (hostIdCollision) {
     return;
   }
 
@@ -476,10 +479,7 @@ export function liveFailureEnvelope(message: string): string {
   return JSON.stringify({ error: message });
 }
 
-export function liveHostErrorEnvelope(
-  _surfaceId: string,
-  errors: string[],
-): string {
+export function liveHostErrorEnvelope(errors: string[]): string {
   return JSON.stringify({
     host_error: {
       code: "host_validation_failed",
@@ -520,7 +520,7 @@ export function parseLiveToolResult(content: string): LiveToolOutcome {
       : [];
     return {
       kind: "failure",
-      message: cap(
+      message: safeDetail(
         typeof hostError.error === "string"
           ? hostError.error
           : "The generated form failed host validation.",
@@ -685,7 +685,7 @@ export function createLiveGenerateTool(model: BaseChatModel) {
       try {
         raw = await innerToolFor(draftSurfaceId).invoke(args, config);
       } catch (error) {
-        return liveHostErrorEnvelope(surfaceId, [
+        return liveHostErrorEnvelope([
           error instanceof Error ? error.message : "The model tool threw an error.",
         ]);
       }
@@ -700,7 +700,7 @@ export function createLiveGenerateTool(model: BaseChatModel) {
             normalized.errors.join(" | "),
           )}`,
         );
-        return liveHostErrorEnvelope(surfaceId, normalized.errors);
+        return liveHostErrorEnvelope(normalized.errors);
       }
       console.info(
         `[a2ui] live surface=${surfaceId} ` +

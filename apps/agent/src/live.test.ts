@@ -304,6 +304,7 @@ describe("Stage 3 live envelope normalization", () => {
     expect(draftSurfaceIdForThread("thread-1")).toBe(
       "live-draft-surface-thread-1",
     );
+    expect(() => surfaceIdForThread(undefined)).toThrow(/thread ID/i);
   });
 
   it("rewrites operations to the thread surface and initializes host metadata", () => {
@@ -424,9 +425,7 @@ describe("Stage 3 live envelope normalization", () => {
   });
 
   it("wraps host failures as a clear error without painting", () => {
-    const envelope = liveHostErrorEnvelope("surface-thread-1", [
-      "title must be present",
-    ]);
+    const envelope = liveHostErrorEnvelope(["title must be present"]);
     const parsed = JSON.parse(envelope) as {
       a2ui_operations?: Array<Record<string, unknown>>;
       host_error: { errors: string[] };

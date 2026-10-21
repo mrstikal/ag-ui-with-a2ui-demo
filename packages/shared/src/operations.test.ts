@@ -125,6 +125,28 @@ describe("strict A2UI fixture schemas", () => {
     expect(result.fields.severity?.kind).toBe("choice");
   });
 
+  it("rejects model-provided validationRegexp even when it is a safe string", () => {
+    const tree = components();
+    const title = tree.find((entry) => entry.id === "title") as {
+      validationRegexp?: string;
+    };
+    title.validationRegexp = "(a+)+$";
+
+    expect(validateComponentTree(tree).errors.map((error) => error.code)).toContain(
+      "unsafe_prop",
+    );
+  });
+
+  it("does not reject ordinary comparison text as markup", () => {
+    const tree = components();
+    const heading = tree.find((entry) => entry.id === "heading") as {
+      text: string;
+    };
+    heading.text = "a < b and first-class=true";
+
+    expect(validateComponentTree(tree).valid).toBe(true);
+  });
+
   it("initializes every bound value", () => {
     const fields = validateComponentTree(components()).fields;
     const model = initializeDataModel(fields);

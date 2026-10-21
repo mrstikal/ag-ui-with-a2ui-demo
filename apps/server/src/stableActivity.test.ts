@@ -269,6 +269,48 @@ describe("stable A2UI activity IDs", () => {
     expect(activities[0]?.messageId).toBe("a2ui-surface-surface-thread-live");
   });
 
+  it("normalizes AGENT_MODE when no explicit live option is given", async () => {
+    const previous = process.env.AGENT_MODE;
+    process.env.AGENT_MODE = " Live ";
+    try {
+      const middleware = createStableA2UIActivityMiddleware();
+      const output = await firstValueFrom(
+        middleware(
+          { threadId: "thread-live" } as never,
+          {
+            run: () =>
+              of(
+                event({
+                  type: "ACTIVITY_SNAPSHOT",
+                  activityType: "a2ui-surface",
+                  messageId: "draft-activity",
+                  content: {
+                    a2ui_operations: [
+                      {
+                        version: "v0.9",
+                        createSurface: {
+                          surfaceId: "live-draft-surface-thread-live",
+                          catalogId: "arb://catalog/request-builder.v1",
+                        },
+                      },
+                    ],
+                  },
+                }),
+              ),
+          } as never,
+        ).pipe(toArray()),
+      );
+
+      expect(output).toHaveLength(0);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_MODE;
+      } else {
+        process.env.AGENT_MODE = previous;
+      }
+    }
+  });
+
   it("fails closed for live operation activities without a thread ID", async () => {
     const middleware = createStableA2UIActivityMiddleware({ live: true });
     const output = await firstValueFrom(

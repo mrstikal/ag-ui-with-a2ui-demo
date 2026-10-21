@@ -9,7 +9,7 @@ import type { CopilotRuntimeOptions } from "@copilotkit/runtime/v2";
 import { CopilotRuntime, InMemoryAgentRunner } from "@copilotkit/runtime/v2";
 import { createCopilotExpressHandler } from "@copilotkit/runtime/v2/express";
 import express from "express";
-import { stableA2UIActivityMiddleware } from "./stableActivity.js";
+import { createStableA2UIActivityMiddleware } from "./stableActivity.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const deploymentUrl = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:2024";
@@ -29,7 +29,9 @@ const requestBuilderAgent = new LangGraphAgent({
   emitRawEvents: false,
 });
 
-requestBuilderAgent.use(stableA2UIActivityMiddleware);
+requestBuilderAgent.use(
+  createStableA2UIActivityMiddleware({ live: mode === "live" }),
+);
 
 const agents = {
   requestBuilder: requestBuilderAgent,

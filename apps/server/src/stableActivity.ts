@@ -81,7 +81,8 @@ export function stabilizeA2UIActivity(
 export function createStableA2UIActivityMiddleware(
   options: StableMiddlewareOptions = {},
 ): MiddlewareFunction {
-  const live = options.live ?? process.env.AGENT_MODE === "live";
+  const live =
+    options.live ?? process.env.AGENT_MODE?.trim().toLowerCase() === "live";
   return (input, next) => {
     let pendingGenerations = 0;
     const generateToolCalls = new Set<string>();

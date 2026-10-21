@@ -7,7 +7,8 @@ import {
   useCopilotChatConfiguration,
   useCopilotKit,
 } from "@copilotkit/react-core/v2";
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { LIMITS } from "@arb/shared";
 import { catalog } from "./catalog.js";
 import {
   INITIAL_HEALTH_STATE,
@@ -31,6 +32,8 @@ const EXAMPLE_PROMPTS = [
     message: "I need to arrange a project review meeting.",
   },
 ] as const;
+
+const MAX_PROMPT_LENGTH = LIMITS.maxPromptLength;
 
 const MODE_STYLES = {
   live: "border-emerald-300 bg-emerald-100 text-emerald-900",
@@ -94,6 +97,7 @@ function Workspace({
   const [bridgeMode, setBridgeMode] = useState<HealthMode>("unknown");
   const [graphMode, setGraphMode] = useState<"fixture" | "live" | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
   const [healthError, setHealthError] = useState(false);
   const mode = graphMode ?? bridgeMode;
   const modeMismatch =
@@ -236,13 +240,19 @@ function Workspace({
         failedActionRef.current = null;
       }
       setRunError(null);
+      setInputError(null);
       onDismissTransportError();
     }
     if (!agent.isRunning && wasRunning && pendingReconnectRef.current) {
       pendingReconnectRef.current = false;
       onRuntimeReconnectRef.current();
     }
-    if (!agent.isRunning) {
+    if (agent.isRunning) {
+      if (actionClickTimerRef.current !== null) {
+        window.clearTimeout(actionClickTimerRef.current);
+        actionClickTimerRef.current = null;
+      }
+    } else {
       actionClickLockRef.current = false;
       if (actionClickTimerRef.current !== null) {
         window.clearTimeout(actionClickTimerRef.current);
@@ -268,6 +278,7 @@ function Workspace({
     agent.setState({});
     startNewThread?.();
     setRunError(null);
+    setInputError(null);
     onDismissTransportError();
   }
 
@@ -275,6 +286,7 @@ function Workspace({
     if (busy || !isReady) return;
     failedActionRef.current = null;
     setRunError(null);
+    setInputError(null);
     onDismissTransportError();
     agent.addMessage({
       id: crypto.randomUUID(),
@@ -299,6 +311,7 @@ function Workspace({
     const forwardedAction = failedActionRef.current;
     failedActionRef.current = null;
     setRunError(null);
+    setInputError(null);
     onDismissTransportError();
     retryingRef.current = true;
     if (forwardedAction) {
@@ -328,13 +341,67 @@ function Workspace({
 
   function dismissError() {
     setRunError(null);
+    setInputError(null);
     onDismissTransportError();
+  }
+
+  function rejectOverlongPrompt() {
+    if (busy) {
+      return;
+    }
+    setRunError(null);
+    setInputError(
+      `The request is longer than ${String(
+        MAX_PROMPT_LENGTH,
+      )} characters. Shorten it and try again.`,
+    );
+  }
+
+  function handleChatKeyDownCapture(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    if (!target.closest('[data-testid="copilot-chat-input"]')) {
+      return;
+    }
+    if (target.value.trim().length > MAX_PROMPT_LENGTH) {
+      event.preventDefault();
+      event.stopPropagation();
+      rejectOverlongPrompt();
+    }
+  }
+
+  function handleChatInputCapture(event: FormEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    if (!target.closest('[data-testid="copilot-chat-input"]')) {
+      return;
+    }
+    if (target.value.trim().length <= MAX_PROMPT_LENGTH) {
+      setInputError(null);
+    }
   }
 
   function handleChatClickCapture(event: MouseEvent<HTMLDivElement>) {
     const target = event.target;
     if (!(target instanceof Element)) {
       return;
+    }
+    const chatInput = target.closest('[data-testid="copilot-chat-input"]');
+    if (chatInput && target.closest("button")) {
+      const textarea = chatInput.querySelector("textarea");
+      if (textarea && textarea.value.trim().length > MAX_PROMPT_LENGTH) {
+        event.preventDefault();
+        event.stopPropagation();
+        rejectOverlongPrompt();
+        return;
+      }
     }
     const button = target.closest(".a2ui-surface button");
     if (!button || !button.firstElementChild) {
@@ -352,7 +419,7 @@ function Workspace({
     actionClickTimerRef.current = window.setTimeout(() => {
       actionClickLockRef.current = false;
       actionClickTimerRef.current = null;
-    }, 400);
+    }, 1_500);
   }
 
   return (
@@ -496,9 +563,19 @@ function Workspace({
               </div>
             </div>
           ) : null}
+          {inputError ? (
+            <div
+              className="border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+              role="alert"
+            >
+              {inputError}
+            </div>
+          ) : null}
           <div
             className={`min-h-0 flex-1${busy ? " a2ui-busy" : ""}`}
             onClickCapture={handleChatClickCapture}
+            onKeyDownCapture={handleChatKeyDownCapture}
+            onInputCapture={handleChatInputCapture}
             aria-busy={busy}
           >
             <CopilotChat

@@ -74,15 +74,3 @@ function findToolCallName(
   }
   return null;
 }
-
-export function isPromptMessage(message: BaseMessage | undefined): boolean {
-  return message !== undefined && message.type === "human";
-}
-
-export function readContextValue(
-  context: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = context[key];
-  return typeof value === "string" ? value : null;
-}

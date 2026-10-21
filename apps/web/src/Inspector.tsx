@@ -1,4 +1,5 @@
 import { UseAgentUpdate, useAgent } from "@copilotkit/react-core/v2";
+import type { BaseEvent } from "@ag-ui/core";
 import { useEffect, useRef, useState } from "react";
 import {
   boundJson,
@@ -35,6 +36,7 @@ interface InspectorRow {
   messageId?: string;
   summary: string;
   payload: Record<string, unknown>;
+  payloadKey: string;
   repeat: number;
   orphan?: boolean;
 }
@@ -82,11 +84,18 @@ export function Inspector({
   const [filter, setFilter] = useState<Filter>("all");
   const [action, setAction] = useState<ActionEvidence | null>(null);
   const [surface, setSurface] = useState<SurfaceSummary>(EMPTY_SURFACE);
+  const [announcement, setAnnouncement] = useState("");
   const [currentRun, setCurrentRun] = useState<{
     runId?: string;
     threadId?: string;
   }>({ threadId });
   const nextRowId = useRef(1);
+  const recordedEventsRef = useRef(0);
+  const rowsRef = useRef<InspectorRow[]>([]);
+  const surfaceRef = useRef<SurfaceSummary>(EMPTY_SURFACE);
+  const actionRef = useRef<ActionEvidence | null>(null);
+  const pendingEventsRef = useRef<BaseEvent[]>([]);
+  const flushTimerRef = useRef<number | null>(null);
   const toolNames = useRef(new Map<string, string>());
   const currentRunRef = useRef<{ runId?: string; threadId?: string }>({
     threadId,
@@ -96,26 +105,53 @@ export function Inspector({
 
   useEffect(() => {
     setRows([]);
+    rowsRef.current = [];
     setAction(null);
+    actionRef.current = null;
     setSurface(EMPTY_SURFACE);
+    surfaceRef.current = EMPTY_SURFACE;
+    setAnnouncement("");
     setFilter("all");
     setCurrentRun({ threadId });
     currentRunRef.current = { threadId };
     runOpenRef.current = false;
     toolNames.current.clear();
+    pendingEventsRef.current = [];
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
     nextRowId.current = 1;
+    recordedEventsRef.current = 0;
   }, [threadId]);
 
   useEffect(() => {
-    const subscription = agent.subscribe({
-      onEvent: ({ event }) => {
+    const flush = () => {
+      flushTimerRef.current = null;
+      const events = pendingEventsRef.current;
+      pendingEventsRef.current = [];
+      if (events.length === 0) {
+        return;
+      }
+
+      let nextRows = rowsRef.current;
+      let nextSurface = surfaceRef.current;
+      let nextAction = actionRef.current;
+      let nextRun: { runId?: string; threadId?: string } | null = null;
+      let nextGraphMode: "fixture" | "live" | null = null;
+      let nextRunError: string | null = null;
+      let nextAnnouncement: string | null = null;
+      let finishedAnnouncement = false;
+
+      for (const event of events) {
         const record = event as unknown as Record<string, unknown>;
         const type = String(record.type ?? "UNKNOWN");
         const eventThreadId =
           typeof record.threadId === "string" ? record.threadId : undefined;
         if (eventThreadId && eventThreadId !== threadId) {
-          return;
+          continue;
         }
+        recordedEventsRef.current += 1;
 
         const toolCallId =
           typeof record.toolCallId === "string"
@@ -142,9 +178,18 @@ export function Inspector({
             threadId: eventThreadId ?? threadId,
           };
           runOpenRef.current = true;
-          setCurrentRun(currentRunRef.current);
+          nextRun = currentRunRef.current;
+          recordedEventsRef.current = 1;
+          finishedAnnouncement = false;
+          nextAnnouncement = "Run started.";
         } else if (type === "RUN_FINISHED" || type === "RUN_ERROR") {
           runOpenRef.current = false;
+          if (type === "RUN_FINISHED") {
+            finishedAnnouncement = true;
+            nextAnnouncement = "Run finished.";
+          } else {
+            nextAnnouncement = "Run failed.";
+          }
         }
 
         const orphan = type !== "RUN_STARTED" && !runWasOpen;
@@ -162,17 +207,17 @@ export function Inspector({
           )})`;
         }
         if (description.action) {
-          setAction({
+          nextAction = {
             ...description.action,
             receivedAt: timeNow(),
             toolCallId,
-          });
+          };
         }
         if (
           type === "ACTIVITY_SNAPSHOT" &&
           record.activityType === "a2ui-surface"
         ) {
-          setSurface((previous) => reduceSurfaceActivity(previous, event));
+          nextSurface = reduceSurfaceActivity(nextSurface, event);
         }
         if (type === "STATE_SNAPSHOT") {
           const snapshot =
@@ -180,45 +225,43 @@ export function Inspector({
               ? (record.snapshot as Record<string, unknown>)
               : {};
           if (snapshot.mode === "fixture" || snapshot.mode === "live") {
-            onGraphMode(snapshot.mode);
+            nextGraphMode = snapshot.mode;
           }
         }
         if (type === "RUN_ERROR") {
-          const message =
+          nextRunError =
             typeof record.message === "string"
               ? record.message
               : "Agent run failed";
-          onRunError(message);
         }
 
         const seq = nextRowId.current++;
         const at = timeNow();
         const payloadKey = JSON.stringify(description.payload);
-        setRows((previous) => {
-          const lastSemanticIndex = previous.findLastIndex(
-            (row) => row.family !== "raw",
-          );
-          const last =
-            lastSemanticIndex >= 0 ? previous[lastSemanticIndex] : undefined;
-          if (
-            type === "STATE_SNAPSHOT" &&
-            last &&
-            last.type === type &&
-            JSON.stringify(last.payload) === payloadKey
-          ) {
-            return [
-              ...previous.slice(0, lastSemanticIndex),
-              {
-                ...last,
-                at,
-                repeat: last.repeat + 1,
-                orphan: Boolean(last.orphan || orphan),
-              },
-              ...previous.slice(lastSemanticIndex + 1),
-            ];
-          }
-          return [
-            ...previous.slice(-199),
+        const lastSemanticIndex = nextRows.findLastIndex(
+          (row) => row.family !== "raw",
+        );
+        const last =
+          lastSemanticIndex >= 0 ? nextRows[lastSemanticIndex] : undefined;
+        if (
+          type === "STATE_SNAPSHOT" &&
+          last &&
+          last.type === type &&
+          last.payloadKey === payloadKey
+        ) {
+          nextRows = [
+            ...nextRows.slice(0, lastSemanticIndex),
+            {
+              ...last,
+              at,
+              repeat: last.repeat + 1,
+              orphan: Boolean(last.orphan || orphan),
+            },
+            ...nextRows.slice(lastSemanticIndex + 1),
+          ];
+        } else {
+          nextRows = [
+            ...nextRows.slice(-199),
             {
               id: seq,
               seq,
@@ -238,15 +281,61 @@ export function Inspector({
                   : undefined,
               summary: description.summary,
               payload: description.payload,
+              payloadKey,
               repeat: 1,
               orphan,
             },
           ];
-        });
+        }
+      }
+
+      rowsRef.current = nextRows;
+      surfaceRef.current = nextSurface;
+      actionRef.current = nextAction;
+      setRows(nextRows);
+      setSurface(nextSurface);
+      setAction(nextAction);
+      if (nextRun) {
+        setCurrentRun(nextRun);
+      }
+      if (nextGraphMode) {
+        onGraphMode(nextGraphMode);
+      }
+      if (nextRunError) {
+        onRunError(nextRunError);
+      }
+      if (nextAnnouncement) {
+        setAnnouncement(
+          finishedAnnouncement
+            ? `${nextAnnouncement} ${String(
+                recordedEventsRef.current,
+              )} events recorded.`
+            : nextAnnouncement,
+        );
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimerRef.current === null) {
+        flushTimerRef.current = window.setTimeout(flush, 100);
+      }
+    };
+
+    const subscription = agent.subscribe({
+      onEvent: ({ event }) => {
+        pendingEventsRef.current.push(event);
+        scheduleFlush();
       },
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      pendingEventsRef.current = [];
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+    };
   }, [agent, threadId, onGraphMode, onRunError]);
 
   const semanticRows = rows.filter((row) => row.family !== "raw");
@@ -269,11 +358,24 @@ export function Inspector({
   ) as Record<Filter, number>;
 
   function clearInspector() {
+    pendingEventsRef.current = [];
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    rowsRef.current = [];
+    surfaceRef.current = EMPTY_SURFACE;
+    actionRef.current = null;
     setRows([]);
     setAction(null);
     setSurface(EMPTY_SURFACE);
+    setAnnouncement("");
     setFilter("all");
     nextRowId.current = 1;
+    recordedEventsRef.current = 0;
+    runOpenRef.current = false;
+    currentRunRef.current = { threadId };
+    setCurrentRun({ threadId });
     toolNames.current.clear();
   }
 
@@ -360,8 +462,7 @@ export function Inspector({
       ) : null}
 
       <p className="sr-only" aria-live="polite">
-        {rows.length} events.
-        {rows.at(-1) ? ` Latest: ${rows.at(-1)?.summary}` : ""}
+        {announcement}
       </p>
       <ol
         className="min-h-0 min-w-0 flex-1 overflow-auto p-2 font-mono text-[11px]"

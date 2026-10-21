@@ -9,6 +9,7 @@ import {
   SIMULATION_NOTICE,
   SUBMIT_BUTTON_ID,
   deriveFieldSpecs,
+  isSafeText,
   operationsEnvelope,
   updateComponentsOperation,
   updateDataModelOperation,
@@ -76,7 +77,12 @@ function clone<T>(value: T): T {
 }
 
 function safeText(value: string, max: number): string {
-  return value.replace(/[\u0000-\u001f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  return value
+    .replace(/[\u0000-\u001f<>]/g, " ")
+    .replace(/\b(?:javascript|vbscript):/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
 }
 
 function unique(values: string[]): string[] {
@@ -643,7 +649,10 @@ function parseOption(value: unknown): { label: string; value: string } | null {
     label === "" ||
     optionValue === "" ||
     label.length > LIMITS.maxLabelLength ||
-    optionValue.length > LIMITS.maxLabelLength
+    optionValue.length > LIMITS.maxLabelLength ||
+    !isSafeText(label, LIMITS.maxLabelLength) ||
+    !isSafeText(optionValue, LIMITS.maxLabelLength) ||
+    /[\u0000-\u001f]/.test(optionValue)
   ) {
     return null;
   }

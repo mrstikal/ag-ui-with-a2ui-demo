@@ -1,8 +1,11 @@
-import { randomUUID } from "node:crypto";
 import { surfaceIdForThread as sharedSurfaceIdForThread } from "@arb/shared";
 
 export function surfaceIdForThread(threadId: string | undefined): string {
-  return sharedSurfaceIdForThread(threadId?.trim() || randomUUID());
+  const trimmed = threadId?.trim();
+  if (!trimmed) {
+    throw new Error("A thread ID is required to derive a surface ID.");
+  }
+  return sharedSurfaceIdForThread(trimmed);
 }
 
 export function draftSurfaceIdForThread(threadId: string): string {

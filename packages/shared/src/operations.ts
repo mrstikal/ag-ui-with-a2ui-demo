@@ -29,9 +29,11 @@ const OPERATION_KEYS = [
   "updateDataModel",
   "deleteSurface",
 ] as const;
-const UNSAFE_MARKUP = /<\s*\/?\s*[a-z!]/i;
+const UNSAFE_MARKUP = /<\/?(?:[a-z][a-z0-9-]*|![a-z]+)(?:\s[^<>]*)?>/i;
+const UNSAFE_TAG_PREFIX =
+  /<\/?(?:script|iframe|svg|img|style|object|embed|link|meta)\b/i;
 const UNSAFE_SCRIPT = /\b(?:javascript|vbscript):/i;
-const UNSAFE_STYLE = /\b(?:style|class)\s*=/i;
+const UNSAFE_STYLE = /(?:^|\s)(?:style|class)\s*=/i;
 
 export interface SurfaceValidationError {
   code: string;
@@ -76,9 +78,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const catalogEntryCache = new Map<string, ComponentCatalogEntry | null>();
+
 function catalogEntry(type: string): ComponentCatalogEntry | null {
+  const cached = catalogEntryCache.get(type);
+  if (cached !== undefined) {
+    return cached;
+  }
   const entry = catalogSchema.components[type];
   if (!isRecord(entry)) {
+    if (catalogEntryCache.size >= 128) {
+      catalogEntryCache.clear();
+    }
+    catalogEntryCache.set(type, null);
     return null;
   }
   const allOf = Array.isArray(entry.allOf) ? entry.allOf : [];
@@ -91,7 +103,12 @@ function catalogEntry(type: string): ComponentCatalogEntry | null {
         (value): value is string => typeof value === "string",
       )
     : [];
-  return { properties, required };
+  const result = { properties, required };
+  if (catalogEntryCache.size >= 128) {
+    catalogEntryCache.clear();
+  }
+  catalogEntryCache.set(type, result);
+  return result;
 }
 
 function enumValues(type: string, property: string): string[] | null {
@@ -119,15 +136,17 @@ function isSafeLabel(value: string, max: number): boolean {
     value.length > 0 &&
     value.length <= max &&
     !UNSAFE_MARKUP.test(value) &&
+    !UNSAFE_TAG_PREFIX.test(value) &&
     !UNSAFE_SCRIPT.test(value) &&
     !UNSAFE_STYLE.test(value)
   );
 }
 
-function isSafeText(value: string, max: number): boolean {
+export function isSafeText(value: string, max: number): boolean {
   return (
     value.length <= max &&
     !UNSAFE_MARKUP.test(value) &&
+    !UNSAFE_TAG_PREFIX.test(value) &&
     !UNSAFE_SCRIPT.test(value)
   );
 }
@@ -308,13 +327,13 @@ function validateChecks(
     const conditionPath = dynamicPath(condition);
     if (
       typeof condition !== "boolean" &&
-      (conditionPath === null || !conditionPath.startsWith("/"))
+      (conditionPath === null || !ACCESSIBILITY_PATH.test(conditionPath))
     ) {
       addError(
         errors,
         "invalid_checks",
         `${path}[${String(index)}].condition`,
-        "condition must be a boolean or a {path} object",
+        "condition must be a boolean or an approved {path} binding",
       );
     }
     if (typeof check.message !== "string" || !isSafeText(check.message, 300)) {
@@ -390,18 +409,6 @@ function validateTextField(
   }
 
   checkEnum(errors, "TextField", component, "variant", `${path}.variant`);
-  if (
-    component.validationRegexp !== undefined &&
-    (typeof component.validationRegexp !== "string" ||
-      !isSafeText(component.validationRegexp, 300))
-  ) {
-    addError(
-      errors,
-      "invalid_prop",
-      `${path}.validationRegexp`,
-      "validationRegexp must be a safe string",
-    );
-  }
   validateChecks(errors, component.checks, `${path}.checks`);
 }
 
@@ -758,6 +765,14 @@ function validateOneComponent(
   }
 
   validateAccessibility(errors, component, `${path}.accessibility`);
+  if (component.validationRegexp !== undefined) {
+    addError(
+      errors,
+      "unsafe_prop",
+      `${path}.validationRegexp`,
+      "validationRegexp is not allowed because model-provided regular expressions are executable",
+    );
+  }
   if (
     component.weight !== undefined &&
     (typeof component.weight !== "number" || !Number.isFinite(component.weight))
@@ -1115,12 +1130,6 @@ export function validateComponentTree(
   }
 
   return { valid: errors.length === 0, errors, fields };
-}
-
-export function deriveFieldRules(
-  components: unknown,
-): Record<string, FieldRule> {
-  return validateComponentTree(components).fields;
 }
 
 export function deriveFieldSpecs(

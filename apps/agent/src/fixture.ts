@@ -247,9 +247,9 @@ export function selectFixtureKind(prompt: string): FixtureKind {
 export function fixtureForCategory(
   category: FixtureCategory | string,
 ): FixtureDefinition {
-  return (
-    FIXTURE_BY_CATEGORY[category as FixtureCategory] ?? FIXTURES.other
-  );
+  return Object.hasOwn(FIXTURE_BY_CATEGORY, category)
+    ? FIXTURE_BY_CATEGORY[category as FixtureCategory]
+    : FIXTURES.other;
 }
 
 export function fixtureForKind(kind: FixtureKind): FixtureDefinition {
