@@ -19,9 +19,13 @@
     "build": "npm run build --workspaces --if-present",
     "test:e2e:fixtures": "node tests/e2e/fixtures.mjs",
     "test:e2e:live": "node tests/e2e/live.mjs",
-    "generate:catalog-schema": "node --experimental-strip-types scripts/generate-catalog-schema.mjs"
+    "generate:catalog-schema": "node --experimental-strip-types scripts/generate-catalog-schema.mjs",
+    "test:e2e:browser": "playwright test --config playwright.config.ts",
+    "test:e2e:browser:live": "node scripts/run-live-browser.mjs",
+    "check:trace": "node scripts/check-protocol-trace.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "typescript": "5.9.3"
   }
 }

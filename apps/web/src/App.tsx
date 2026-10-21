@@ -224,19 +224,19 @@ function Workspace({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+    <div className="flex h-full min-w-0 flex-col overflow-x-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-semibold text-slate-900">
               Adaptive Request Builder
             </h1>
             <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-              Stage 4
+              Stage 5
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Deterministic review · checkpoint-anchored updates
+            Model-composed forms · deterministic review · demo-only submit
           </p>
         </div>
 
@@ -266,7 +266,7 @@ function Workspace({
           </span>
           <button
             type="button"
-            className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-9 rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleNewRequest}
             disabled={busy}
           >
@@ -308,6 +308,7 @@ function Workspace({
         <div
           className="flex flex-wrap items-center gap-3 border-b border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-950"
           role="alert"
+          aria-atomic="true"
         >
           <span className="min-w-0 flex-1 break-words">
             <strong>{healthError ? "Bridge unavailable." : "Run or transport error."}</strong>{" "}
@@ -341,8 +342,8 @@ function Workspace({
         </div>
       ) : null}
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto p-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(380px,1fr)] lg:overflow-hidden">
-        <section className="flex min-h-[560px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
+      <main className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 overflow-auto p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(360px,1fr)] lg:overflow-hidden">
+        <section className="flex min-h-[520px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
           {!hasMessages ? (
             <div className="border-b border-slate-200 bg-slate-50 px-3 py-3">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -353,7 +354,7 @@ function Workspace({
                   <button
                     key={title}
                     type="button"
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-500 hover:text-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="min-h-9 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-teal-500 hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => void handleExample(message)}
                     disabled={busy || !isReady}
                   >
@@ -374,7 +375,7 @@ function Workspace({
             />
           </div>
         </section>
-        <aside className="flex min-h-[420px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
+        <aside className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:min-h-0">
           <Inspector
             threadId={threadId}
             onGraphMode={setGraphMode}

@@ -14,6 +14,62 @@ const PUBLISH_TOOL = "publish_fixture_operations";
 const REVIEW_ACTION = "reviewRequest";
 const DISCARD_ACTION = "discardSurface";
 
+function assertEventOrder(events, label) {
+  assert(events.length > 0, `${label} must emit events`);
+  assert(events[0]?.type === "RUN_STARTED", `${label} must start with RUN_STARTED`);
+  assert(
+    events.at(-1)?.type === "RUN_FINISHED",
+    `${label} must end with RUN_FINISHED`,
+  );
+  const types = events.map((event) => event.type);
+  assert(!types.includes("RUN_ERROR"), `${label} must not emit RUN_ERROR`);
+  const stateIndex = types.lastIndexOf("STATE_SNAPSHOT");
+  assert(stateIndex > 0, `${label} must emit STATE_SNAPSHOT`);
+  assert(
+    stateIndex < events.length - 1,
+    `${label} STATE_SNAPSHOT must precede RUN_FINISHED`,
+  );
+
+  const textStart = types.indexOf("TEXT_MESSAGE_START");
+  const textContent = types.indexOf("TEXT_MESSAGE_CONTENT");
+  const textEnd = types.indexOf("TEXT_MESSAGE_END");
+  if (textStart >= 0) {
+    assert(
+      textStart < textContent && textContent < textEnd,
+      `${label} text events must be START before CONTENT before END`,
+    );
+  }
+
+  events.forEach((event, startIndex) => {
+    if (event.type !== "TOOL_CALL_START") {
+      return;
+    }
+    const id = event.toolCallId;
+    const after = (type) =>
+      events.findIndex(
+        (candidate, index) =>
+          index > startIndex &&
+          candidate.type === type &&
+          candidate.toolCallId === id,
+      );
+    const argsIndex = after("TOOL_CALL_ARGS");
+    const endIndex = after("TOOL_CALL_END");
+    const resultIndex = after("TOOL_CALL_RESULT");
+    assert(
+      argsIndex < 0 || argsIndex > startIndex,
+      `${label} tool args must follow TOOL_CALL_START for ${id}`,
+    );
+    assert(
+      endIndex < 0 || endIndex > Math.max(startIndex, argsIndex),
+      `${label} tool end must follow its args for ${id}`,
+    );
+    assert(
+      resultIndex < 0 || resultIndex > Math.max(startIndex, endIndex),
+      `${label} tool result must follow its end for ${id}`,
+    );
+  });
+}
+
 function a2uiOperations(events) {
   const activity = events
     .filter(
@@ -141,6 +197,7 @@ async function startFixture(prompt) {
     ...baseBody(threadId, userMessage),
     runId: randomUUID(),
   });
+  assertEventOrder(events, "initial fixture run");
   const types = events.map((event) => event.type);
   for (const required of [
     "RUN_STARTED",
@@ -250,7 +307,7 @@ async function startFixture(prompt) {
 }
 
 async function runAction(fixture, action, context) {
-  return runAgent({
+  const events = await runAgent({
     ...baseBody(fixture.threadId, {
       id: randomUUID(),
       role: "user",
@@ -272,6 +329,8 @@ async function runAction(fixture, action, context) {
       },
     },
   });
+  assertEventOrder(events, `fixture action ${action}`);
+  return events;
 }
 
 function assertNoRunError(events, label) {
@@ -331,6 +390,28 @@ async function main() {
   assert(custom.fields.size === 2, "custom fixture must keep canonical title/details only");
   assert(custom.data.draft?.title === "", "custom title must be initialized");
   assert(custom.data.draft?.details === "", "custom details must be initialized");
+
+  const tooLongEvents = await runAgent({
+    ...baseBody(randomUUID(), {
+      id: randomUUID(),
+      role: "user",
+      content: "x".repeat(1_001),
+    }),
+    runId: randomUUID(),
+  });
+  assertEventOrder(tooLongEvents, "overlong fixture prompt");
+  assert(
+    textOf(tooLongEvents).includes("at most 1000 characters"),
+    "overlong prompts must be rejected with the host prompt limit",
+  );
+  assert(
+    !tooLongEvents.some(
+      (event) =>
+        event.type === "ACTIVITY_SNAPSHOT" &&
+        event.activityType === "a2ui-surface",
+    ),
+    "overlong prompts must not paint an A2UI surface",
+  );
 
   const surfaceIds = new Set(
     [bug, feature, meeting, custom].map((fixture) => fixture.surfaceId),

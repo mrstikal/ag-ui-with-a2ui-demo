@@ -278,9 +278,9 @@ export function Inspector({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex items-start justify-between gap-2 border-b border-slate-200 px-3 py-2">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slate-800">
             AG-UI Inspector
           </h2>
@@ -290,14 +290,14 @@ export function Inspector({
         </div>
         <button
           type="button"
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+          className="min-h-8 shrink-0 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
           onClick={clearInspector}
         >
           Clear
         </button>
       </div>
 
-      <div className="border-b border-slate-100 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
+      <div className="min-w-0 break-all border-b border-slate-100 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
         <div>thread={threadId}</div>
         <div>
           run={currentRun.runId ?? "n/a"} status=
@@ -360,7 +360,7 @@ export function Inspector({
         {rows.at(-1) ? ` Latest: ${rows.at(-1)?.summary}` : ""}
       </p>
       <ol
-        className="min-h-0 flex-1 overflow-auto p-2 font-mono text-[11px]"
+        className="min-h-0 min-w-0 flex-1 overflow-auto p-2 font-mono text-[11px]"
         aria-label="AG-UI event stream"
       >
         {visibleRows.length === 0 ? (
@@ -375,8 +375,8 @@ export function Inspector({
               key={row.id}
               className="mb-1 rounded border border-slate-100 bg-white p-2"
             >
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 text-slate-400">
                   #{String(row.seq).padStart(3, "0")}
                 </span>
                 <span
@@ -384,7 +384,9 @@ export function Inspector({
                 >
                   {row.family}
                 </span>
-                <span className="font-semibold text-slate-800">{row.type}</span>
+                <span className="min-w-0 truncate font-semibold text-slate-800">
+                  {row.type}
+                </span>
                 {row.repeat > 1 ? (
                   <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">
                     x{row.repeat}

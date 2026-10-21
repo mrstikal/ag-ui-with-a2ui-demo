@@ -8,6 +8,7 @@ body,
 
 body {
   margin: 0;
+  overflow-x: hidden;
   background: #f6f7f9;
   color: #172026;
   font-family:
@@ -18,7 +19,17 @@ body {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid #0f766e;
   outline-offset: 2px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }

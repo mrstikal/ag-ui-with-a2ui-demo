@@ -418,3 +418,109 @@ describe("strict A2UI fixture schemas", () => {
     ]);
   });
 });
+
+describe("host limits and field rules", () => {
+  it("rejects too many components before paint", () => {
+    const tree = components();
+    const root = tree.find((component) => component.id === "root") as {
+      children: string[];
+    };
+    for (let index = 0; index < 72; index += 1) {
+      const id = `extra_${String(index)}`;
+      root.children.push(id);
+      tree.push({ id, component: "Text", text: `Note ${String(index)}` });
+    }
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toContain(
+      "too_many_components",
+    );
+  });
+
+  it("rejects too many fields and still derives required canonical rules", () => {
+    const tree = components();
+    const root = tree.find((component) => component.id === "root") as {
+      children: string[];
+    };
+    const review = tree.find((component) => component.id === "review") as {
+      action: { event: { context: Record<string, unknown> } };
+    };
+    for (let index = 0; index < 11; index += 1) {
+      const key = `extra_${String(index)}`;
+      const id = `field_${key}`;
+      root.children.push(id);
+      tree.push({
+        id,
+        component: "TextField",
+        label: `Extra ${String(index)}`,
+        value: { path: `/draft/${key}` },
+      });
+      review.action.event.context[key] = { path: `/draft/${key}` };
+    }
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toContain(
+      "too_many_fields",
+    );
+    expect(result.fields.title?.required).toBe(true);
+    expect(result.fields.details?.required).toBe(true);
+    expect(result.fields.extra_0?.required).toBe(false);
+  });
+
+  it("rejects too many choice options and oversized labels", () => {
+    const tree = components();
+    const severity = tree.find((component) => component.id === "severity") as {
+      options: Array<{ label: string; value: string }>;
+      label: string;
+    };
+    severity.options = Array.from({ length: 9 }, (_, index) => ({
+      label: `Option ${String(index)}`,
+      value: `option_${String(index)}`,
+    }));
+    severity.label = "x".repeat(101);
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    const codes = result.errors.map((error) => error.code);
+    expect(codes).toContain("invalid_options");
+    expect(codes).toContain("unsafe_content");
+  });
+
+  it("rejects a tree deeper than the layout limit", () => {
+    const tree: Array<Record<string, unknown>> = [
+      { id: "root", component: "Column", children: ["n1"] },
+    ];
+    for (let index = 1; index <= 7; index += 1) {
+      tree.push({
+        id: `n${String(index)}`,
+        component: "Column",
+        children: index === 7 ? ["leaf"] : [`n${String(index + 1)}`],
+      });
+    }
+    tree.push({ id: "leaf", component: "Text", text: "Leaf" });
+
+    const result = validateComponentTree(tree);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toContain("too_deep");
+  });
+
+  it("rejects envelopes above the operation limit", () => {
+    const operations = Array.from({ length: 13 }, (_, index) =>
+      updateDataModelOperation("surface-1", "/meta/revision", index),
+    );
+    const result = validateOperationEnvelope(operationsEnvelope(operations), {
+      expectedSurfaceId: "surface-1",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((error) => error.message.includes("at most 12")),
+    ).toBe(true);
+  });
+});

@@ -15,7 +15,7 @@ export function SurfaceInspector({ surface }: { surface: SurfaceSummary }) {
       className="border-b border-violet-200 bg-violet-50/60 px-3 py-2"
       aria-label="A2UI surface inspector"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-900">
           A2UI Surface Inspector
         </h3>

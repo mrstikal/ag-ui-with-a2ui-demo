@@ -17,6 +17,8 @@ const SUBMIT_ACTION = "submitDemoRequest";
 const APPLY_TOOL = "apply_request_changes";
 const SIMULATION_NOTICE = "Demo only - nothing was sent.";
 
+const protocolSections = [];
+
 const modelId = process.env.MODEL_ID?.trim();
 const apiKey = process.env.MODEL_API_KEY?.trim();
 
@@ -141,6 +143,216 @@ function dataPaths(activity) {
   return operationsOf(activity)
     .filter((operation) => operation.updateDataModel)
     .map((operation) => operation.updateDataModel.path ?? "/");
+}
+
+function describeOperations(activity) {
+  const operations = operationsOf(activity);
+  if (operations.length === 0) {
+    return "none";
+  }
+  return operations
+    .map((operation) => {
+      if (operation.createSurface) {
+        return `createSurface(surfaceId=${operation.createSurface.surfaceId}, catalogId=${operation.createSurface.catalogId})`;
+      }
+      if (operation.updateComponents) {
+        const components = Array.isArray(operation.updateComponents.components)
+          ? operation.updateComponents.components
+          : [];
+        const types = [...new Set(components.map((component) => component.component))]
+          .sort()
+          .join(",");
+        const bindings = [...new Set(
+          components
+            .filter(
+              (component) =>
+                component.component === "TextField" ||
+                component.component === "ChoicePicker",
+            )
+            .map(draftPath)
+            .filter((path) => typeof path === "string"),
+        )]
+          .sort()
+          .join(",");
+        const actions = [...new Set(
+          components
+            .filter((component) => component.component === "Button")
+            .map((component) => component.action?.event?.name)
+            .filter((name) => typeof name === "string"),
+        )]
+          .sort()
+          .join(",");
+        return `updateComponents(surfaceId=${operation.updateComponents.surfaceId}, count=${components.length}, types=[${types}], bindings=[${bindings}], actions=[${actions}])`;
+      }
+      if (operation.updateDataModel) {
+        return `updateDataModel(surfaceId=${operation.updateDataModel.surfaceId}, path=${operation.updateDataModel.path ?? "/"})`;
+      }
+      if (operation.deleteSurface) {
+        return `deleteSurface(surfaceId=${operation.deleteSurface.surfaceId})`;
+      }
+      return operationKind(operation);
+    })
+    .join("; ");
+}
+
+function sanitizedEvent(event) {
+  const details = {};
+  const copy = (key, value) => {
+    if (value !== undefined) {
+      details[key] = value;
+    }
+  };
+  switch (event.type) {
+    case "RUN_STARTED":
+    case "RUN_FINISHED":
+      copy("threadId", event.threadId);
+      copy("runId", event.runId);
+      break;
+    case "TEXT_MESSAGE_START":
+      copy("messageId", event.messageId);
+      copy("role", event.role);
+      break;
+    case "TEXT_MESSAGE_CONTENT":
+      copy("messageId", event.messageId);
+      copy("chars", String(event.delta ?? "").length);
+      break;
+    case "TEXT_MESSAGE_END":
+      copy("messageId", event.messageId);
+      break;
+    case "TOOL_CALL_START":
+      copy("toolCallId", event.toolCallId);
+      copy("name", event.toolCallName);
+      break;
+    case "TOOL_CALL_ARGS":
+      copy("toolCallId", event.toolCallId);
+      copy("chars", String(event.delta ?? "").length);
+      break;
+    case "TOOL_CALL_END":
+      copy("toolCallId", event.toolCallId);
+      break;
+    case "TOOL_CALL_RESULT":
+      copy("toolCallId", event.toolCallId);
+      copy("chars", String(event.content ?? "").length);
+      break;
+    case "STATE_SNAPSHOT": {
+      const snapshot = event.snapshot ?? {};
+      copy("mode", snapshot.mode);
+      copy("status", snapshot.status);
+      copy("revision", snapshot.revision);
+      copy("surfaceId", snapshot.surfaceId);
+      copy("category", snapshot.category);
+      break;
+    }
+    case "STATE_DELTA":
+      copy("patchCount", Array.isArray(event.delta) ? event.delta.length : 0);
+      break;
+    case "MESSAGES_SNAPSHOT": {
+      const messages = Array.isArray(event.messages) ? event.messages : [];
+      copy("count", messages.length);
+      copy(
+        "roles",
+        messages.map((message) => message?.role ?? "unknown").join(","),
+      );
+      break;
+    }
+    case "ACTIVITY_SNAPSHOT":
+    case "ACTIVITY_DELTA":
+      copy("activityType", event.activityType);
+      copy("messageId", event.messageId);
+      copy("a2uiOperations", describeOperations(event));
+      break;
+    case "CUSTOM":
+      copy("name", event.name);
+      if (event.name === "a2ui_action_evidence") {
+        const value = event.value ?? {};
+        copy("action", value.name);
+        copy("surfaceId", value.surfaceId);
+        copy("sourceComponentId", value.sourceComponentId);
+        copy(
+          "contextKeys",
+          Object.keys(value.context ?? {}).sort().join(","),
+        );
+      }
+      break;
+    case "RUN_ERROR":
+      copy("message", "redacted");
+      break;
+  }
+  return { type: event.type, details };
+}
+
+function recordProtocol(label, events) {
+  protocolSections.push({
+    label,
+    events: events.map(sanitizedEvent),
+  });
+}
+
+function markdownCell(value) {
+  return String(value ?? "")
+    .replaceAll("|", "\\|")
+    .replaceAll("\n", " ");
+}
+
+function renderProtocolTrace() {
+  const lines = [
+    "# Protocol trace",
+    "",
+    `Real live run generated ${new Date().toISOString()} with model \`${modelId}\`.`,
+    "",
+    "This trace is generated from the SSE events received by `tests/e2e/live.mjs` through the real Express CopilotKit bridge and LangGraph agent. It is sanitized: prompts, model text, tool arguments/results, user-entered field values, and action context values are omitted. Text and tool payloads are represented by character counts; state is limited to public fields; A2UI activities are reduced to operation kinds, surface IDs, component types/counts, host binding paths, and action names. The model API key is never read into this document.",
+    "",
+    "The initial-generation section shows AG-UI text/tool/state/activity ordering and the A2UI activity emitted by the middleware. The journey section shows the deterministic form-edit/action/update cycle, including a stale and a double action. Consecutive identical STATE_SNAPSHOT events are collapsed into a row range with a repeat count; no event is reordered or invented.",
+    "",
+  ];
+
+  for (const section of protocolSections) {
+    const started = section.events.find((event) => event.type === "RUN_STARTED");
+    lines.push(`## ${section.label}`, "");
+    if (started?.details.threadId) {
+      lines.push(`Thread: \`${started.details.threadId}\``, "");
+    }
+    lines.push(
+      "| # | AG-UI event | Sanitized detail |",
+      "| ---: | --- | --- |",
+    );
+    const rows = [];
+    section.events.forEach((event, index) => {
+      const fingerprint = `${event.type}|${JSON.stringify(event.details)}`;
+      const previous = rows.at(-1);
+      if (
+        event.type === "STATE_SNAPSHOT" &&
+        previous?.fingerprint === fingerprint
+      ) {
+        previous.end = index;
+        previous.count += 1;
+        return;
+      }
+      rows.push({
+        event,
+        start: index,
+        end: index,
+        count: 1,
+        fingerprint,
+      });
+    });
+    for (const row of rows) {
+      const detail = Object.entries(row.event.details)
+        .map(([key, value]) => `${key}=${value}`)
+        .join("; ");
+      const range =
+        row.start === row.end
+          ? String(row.start + 1)
+          : `${row.start + 1}–${row.end + 1}`;
+      const repeated = row.count > 1 ? ` (repeated ${row.count}×)` : "";
+      lines.push(
+        `| ${range} | \`${row.event.type}\` | ${markdownCell((detail || "-") + repeated)} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
 }
 
 function assertSameSurface(activity, surfaceId, label) {
@@ -436,6 +648,7 @@ async function stageFourJourney({ threadId, initial }) {
 
   const step = (name, events) => {
     assertRun(events, name);
+    recordProtocol(`Stage 4 journey - ${name}`, events);
     const snapshot = stateSnapshot(events);
     assertPublicState(snapshot, name);
     return {
@@ -897,6 +1110,9 @@ async function main() {
       forwardedProps: { a2uiCatalogAvailable: true },
     });
     const result = inspectRun(events, threadId, testCase.label);
+    if (testCase.label === "bug") {
+      recordProtocol("Initial generation - bug example", events);
+    }
     traces.push(result.trace);
     console.info(`[e2e] ${testCase.label} PASS: ${result.text.slice(0, 120)}`);
 
@@ -938,6 +1154,12 @@ async function main() {
   if (process.env.LIVE_TRACE_PATH) {
     writeFileSync(process.env.LIVE_TRACE_PATH, sanitized);
     console.info(`[e2e] trace written to ${process.env.LIVE_TRACE_PATH}`);
+  }
+  if (process.env.PROTOCOL_TRACE_PATH) {
+    writeFileSync(process.env.PROTOCOL_TRACE_PATH, renderProtocolTrace());
+    console.info(
+      `[e2e] sanitized protocol trace written to ${process.env.PROTOCOL_TRACE_PATH}`,
+    );
   }
   console.info(
     `[e2e] live PASS: ${surfaceTraces.length} real model-composed surfaces, streaming, catalog-resolved activities, distinct example forms, and the deterministic Stage 4 journey`,
